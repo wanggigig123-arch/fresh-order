@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 // ╔══════════════════════════════════════════════════════════╗
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
-const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbygIQ_rlesTf-UKvhNyBQMaLnZ4TkWX6k2k7oPGShpY-quz6j83H-91QzvZkw67NHxlSw/exec";
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyUUh5GctDV2ZKKu1LbogMBNw0qhcDQCYnlz3ReV-LaHc0dkmF9orwyE8ct4ddoH0MQiw/exec";
 
 const ADMIN_PASSWORD = "820822"; // 後台密碼
 
@@ -392,7 +392,7 @@ export default function App() {
             showToast(o.isLate ? "⚠️ 訂單送出（逾期標注）" : "✅ 訂單送出成功！");
           }}/>
         : adminAuthed
-          ? <AdminPage zones={zones} setZones={setZones} orders={orders} showToast={showToast} onLogout={()=>setAdminAuthed(false)}/>
+          ? <AdminPage zones={zones} setZones={setZones} orders={orders} setOrders={setOrders} showToast={showToast} onLogout={()=>setAdminAuthed(false)}/>
           : <AdminLogin onSuccess={()=>setAdminAuthed(true)}/>
       }
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
@@ -585,11 +585,44 @@ function OrderPage({ zones, onOrder }) {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  後台頁                                                  ║
 // ╚══════════════════════════════════════════════════════════╝
-function AdminPage({ zones, setZones, orders, showToast, onLogout }) {
+function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) {
   const [tab, setTab] = useState("orders");
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  // 從 Google Sheets 讀取訂單
+  const fetchOrders = async () => {
+    if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
+    setLoadingOrders(true);
+    try {
+      const url = GOOGLE_SHEET_URL + "?action=getOrders";
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data.status === "ok" && data.orders) {
+        const parsed = data.orders.map(o => ({
+          ...o,
+          items: (o.itemsRaw || "").split("、").filter(Boolean).map(s => {
+            const match = s.match(/^(.+?)×(\d+)(.+)$/);
+            return match
+              ? { name: match[1], qty: parseInt(match[2]), unit: match[3], emoji: "🥗" }
+              : { name: s, qty: 1, unit: "", emoji: "🥗" };
+          })
+        }));
+        setOrders(parsed.reverse());
+        showToast(`✅ 已載入 ${parsed.length} 筆訂單`);
+      }
+    } catch(e) {
+      showToast("❌ 讀取訂單失敗", "error");
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  // 進入後台自動載入
+  useEffect(() => { fetchOrders(); }, []);
+
   const itemTotals = {};
   orders.forEach(o=>o.items.forEach(i=>{
-    if(!itemTotals[i.name]) itemTotals[i.name]={qty:0,unit:i.unit,emoji:i.emoji};
+    if(!itemTotals[i.name]) itemTotals[i.name]={qty:0,unit:i.unit,emoji:i.emoji||"🥗"};
     itemTotals[i.name].qty+=i.qty;
   }));
   const topItem   = Object.entries(itemTotals).sort((a,b)=>b[1].qty-a[1].qty)[0];
@@ -607,6 +640,9 @@ function AdminPage({ zones, setZones, orders, showToast, onLogout }) {
         <button className={`atab ${tab==="orders"?"on":""}`} onClick={()=>setTab("orders")}>📋 訂單列表</button>
         <button className={`atab ${tab==="update"?"on":""}`} onClick={()=>setTab("update")}>🤖 更新品項</button>
         <button className={`atab ${tab==="items"?"on":""}`}  onClick={()=>setTab("items")}>🥦 品項管理</button>
+        <button className="atab" style={{color:"var(--leaf)",borderColor:"#cde0c8"}} onClick={fetchOrders} disabled={loadingOrders}>
+          {loadingOrders ? "⏳" : "🔄 重新整理"}
+        </button>
         <button className="atab" style={{marginLeft:"auto",color:"var(--red)",borderColor:"#fde8e6"}} onClick={onLogout}>🔓 登出</button>
       </div>
       {tab==="orders" && <OrdersTab orders={orders} itemTotals={itemTotals} showToast={showToast}/>}
