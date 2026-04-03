@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 // ╔══════════════════════════════════════════════════════════╗
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
-const GOOGLE_SHEET_URL = "貼上你的Apps_Script網址";
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbzlyyTS2TyIT_KHAqO3oKHjTkC3GiK1wZdbUShSMnoR3jktNf3tKcX2Ppsl7WzaS4SDPg/exec";
 // 範例: "https://script.google.com/macros/s/AKfyc.../exec"
 
 const ADMIN_PASSWORD = "820822"; // 後台密碼
