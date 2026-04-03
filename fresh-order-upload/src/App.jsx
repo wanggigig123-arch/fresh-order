@@ -6,6 +6,8 @@ import { useState, useRef, useEffect } from "react";
 const GOOGLE_SHEET_URL = "貼上你的Apps_Script網址";
 // 範例: "https://script.google.com/macros/s/AKfyc.../exec"
 
+const ADMIN_PASSWORD = "820822"; // 後台密碼
+
 // ╔══════════════════════════════════════════════════════════╗
 // ║  樣式                                                    ║
 // ╚══════════════════════════════════════════════════════════╝
@@ -175,7 +177,18 @@ textarea.fi{resize:vertical;min-height:66px}
 .toast.success{background:var(--leaf)}
 .toast.error{background:var(--red)}
 @keyframes ti{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-/* PWA 安裝提示 */
+/* ── 後台登入 ── */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--cream)}
+.login-card{background:#fff;border-radius:var(--r);padding:40px 32px;box-shadow:var(--s2);width:100%;max-width:360px;text-align:center}
+.login-icon{font-size:2.8rem;margin-bottom:12px}
+.login-title{font-family:'Noto Serif TC',serif;font-size:1.3rem;color:var(--leaf);margin-bottom:6px}
+.login-sub{font-size:.83rem;color:var(--ink3);margin-bottom:24px}
+.login-input{width:100%;border:1.5px solid #cde0c8;border-radius:var(--rs);padding:11px 14px;font-family:'Noto Sans TC',sans-serif;font-size:1rem;text-align:center;letter-spacing:.2em;outline:none;margin-bottom:14px;transition:border-color .2s}
+.login-input:focus{border-color:var(--leaf2);background:#fff}
+.login-btn{width:100%;padding:12px;background:linear-gradient(135deg,var(--leaf),var(--leaf2));color:#fff;border:none;border-radius:var(--rs);font-size:.95rem;font-weight:600;font-family:'Noto Sans TC',sans-serif;cursor:pointer;transition:all .2s}
+.login-btn:hover{transform:translateY(-1px)}
+.login-err{color:var(--red);font-size:.83rem;margin-top:10px}
+
 .pwa-banner{background:var(--gold2,#fff8e1);border:1.5px solid #f0c040;border-radius:var(--rs);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;font-size:.83rem;color:#7a5c00}
 .pwa-banner-text{flex:1;line-height:1.5}
 .pwa-install-btn{padding:6px 14px;background:#f0c040;border:none;border-radius:6px;font-family:'Noto Sans TC',sans-serif;font-size:.8rem;font-weight:700;color:#5a3e00;cursor:pointer;white-space:nowrap}
@@ -330,6 +343,7 @@ export default function App() {
   const [zones, setZones]   = useState(DEFAULT_ZONES);
   const [orders, setOrders] = useState([]);
   const [toast, setToast]   = useState(null);
+  const [adminAuthed, setAdminAuthed] = useState(false); // 後台是否已登入
   // PWA 安裝提示
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstall, setShowInstall]       = useState(false);
@@ -382,10 +396,54 @@ export default function App() {
             await sendToSheet(o);
             showToast(o.isLate ? "⚠️ 訂單送出（逾期標注）" : "✅ 訂單送出成功！");
           }}/>
-        : <AdminPage zones={zones} setZones={setZones} orders={orders} showToast={showToast}/>
+        : adminAuthed
+          ? <AdminPage zones={zones} setZones={setZones} orders={orders} showToast={showToast} onLogout={()=>setAdminAuthed(false)}/>
+          : <AdminLogin onSuccess={()=>setAdminAuthed(true)}/>
       }
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
     </>
+  );
+}
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  後台登入頁                                              ║
+// ╚══════════════════════════════════════════════════════════╝
+function AdminLogin({ onSuccess }) {
+  const [pwd, setPwd]   = useState("");
+  const [err, setErr]   = useState(false);
+  const [shake, setShake] = useState(false);
+
+  const login = () => {
+    if (pwd === ADMIN_PASSWORD) {
+      onSuccess();
+    } else {
+      setErr(true);
+      setShake(true);
+      setPwd("");
+      setTimeout(() => setShake(false), 500);
+    }
+  };
+
+  return (
+    <div className="login-wrap">
+      <div className="login-card" style={shake?{animation:"shake .4s ease"}:{}}>
+        <style>{`@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}`}</style>
+        <div className="login-icon">🔐</div>
+        <div className="login-title">後台管理</div>
+        <div className="login-sub">請輸入管理員密碼</div>
+        <input
+          className="login-input"
+          type="password"
+          placeholder="••••••"
+          value={pwd}
+          onChange={e=>{ setPwd(e.target.value); setErr(false); }}
+          onKeyDown={e=>e.key==="Enter"&&login()}
+          autoFocus
+        />
+        <button className="login-btn" onClick={login}>進入後台</button>
+        {err && <div className="login-err">❌ 密碼錯誤，請再試一次</div>}
+      </div>
+    </div>
   );
 }
 
@@ -532,7 +590,7 @@ function OrderPage({ zones, onOrder }) {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  後台頁                                                  ║
 // ╚══════════════════════════════════════════════════════════╝
-function AdminPage({ zones, setZones, orders, showToast }) {
+function AdminPage({ zones, setZones, orders, showToast, onLogout }) {
   const [tab, setTab] = useState("orders");
   const itemTotals = {};
   orders.forEach(o=>o.items.forEach(i=>{
@@ -554,6 +612,7 @@ function AdminPage({ zones, setZones, orders, showToast }) {
         <button className={`atab ${tab==="orders"?"on":""}`} onClick={()=>setTab("orders")}>📋 訂單列表</button>
         <button className={`atab ${tab==="update"?"on":""}`} onClick={()=>setTab("update")}>🤖 更新品項</button>
         <button className={`atab ${tab==="items"?"on":""}`}  onClick={()=>setTab("items")}>🥦 品項管理</button>
+        <button className="atab" style={{marginLeft:"auto",color:"var(--red)",borderColor:"#fde8e6"}} onClick={onLogout}>🔓 登出</button>
       </div>
       {tab==="orders" && <OrdersTab orders={orders} itemTotals={itemTotals} showToast={showToast}/>}
       {tab==="update" && <UpdateTab zones={zones} setZones={setZones} showToast={showToast}/>}
