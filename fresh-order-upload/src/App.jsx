@@ -3,8 +3,7 @@ import { useState, useRef, useEffect } from "react";
 // ╔══════════════════════════════════════════════════════════╗
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
-const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbzlyyTS2TyIT_KHAqO3oKHjTkC3GiK1wZdbUShSMnoR3jktNf3tKcX2Ppsl7WzaS4SDPg/exec";
-// 範例: "https://script.google.com/macros/s/AKfyc.../exec"
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbygIQ_rlesTf-UKvhNyBQMaLnZ4TkWX6k2k7oPGShpY-quz6j83H-91QzvZkw67NHxlSw/exec";
 
 const ADMIN_PASSWORD = "820822"; // 後台密碼
 
@@ -307,12 +306,8 @@ function getWeekLabel() {
 async function sendToSheet(orderData) {
   if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
   try {
-    await fetch(GOOGLE_SHEET_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(orderData),
-    });
+    const url = GOOGLE_SHEET_URL + "?data=" + encodeURIComponent(JSON.stringify(orderData));
+    await fetch(url, { method: "GET", mode: "no-cors" });
   } catch (e) {
     console.warn("Google Sheet 連線失敗", e);
   }
