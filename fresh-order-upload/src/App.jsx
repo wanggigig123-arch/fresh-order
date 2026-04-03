@@ -302,6 +302,25 @@ function getWeekLabel() {
   return `下週 ${fmt(monday)}（一）– ${fmt(sunday)}（日）`;
 }
 
+// 取得下週二到貨日
+function getArrivalDate() {
+  const now = new Date();
+  const day = now.getDay();
+  // 下週二 = 距離今天 (9 - day) % 7 天，若今天是週二且未截止則用下週
+  const tuesday = new Date(now);
+  const diff = (9 - day) % 7 || 7;
+  tuesday.setDate(now.getDate() + diff);
+  const fmt = d => `${d.getMonth()+1}/${d.getDate()}`;
+  return `${fmt(tuesday)}（二）`;
+}
+
+// 取得本週四截止日
+function getDeadlineDate() {
+  const deadline = getDeadline();
+  const fmt = d => `${d.getMonth()+1}/${d.getDate()}`;
+  return `${fmt(deadline)}（四）`;
+}
+
 // 送訂單到 Google Sheets
 async function sendToSheet(orderData) {
   if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
@@ -514,7 +533,10 @@ function OrderPage({ zones, onOrder }) {
       <div className="wk-banner">
         <div>
           <div className="wk-title">📅 {getWeekLabel()} 預訂單</div>
-          <div className="wk-sub">請選擇品項數量，填寫姓名後送出</div>
+          <div className="wk-sub" style={{display:"flex",flexDirection:"column",gap:3,marginTop:4}}>
+            <span>🚚 到貨日：{getArrivalDate()}（可當天取貨或配送）</span>
+            <span>⏰ 收單截止：{getDeadlineDate()} 晚上 8:00</span>
+          </div>
         </div>
         <div className="wk-note">※價格僅供參考<br/>會隨市價調整</div>
       </div>
