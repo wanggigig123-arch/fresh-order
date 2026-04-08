@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 // ╔══════════════════════════════════════════════════════════╗
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
-const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbx8lQr5sVnq3H4DiYncxtyPEP6-I5xpYIJnWf76LmVc9A3rN5M4iufFZcHyUacjeS77-A/exec";
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwWdoFoRdP3a0gj9SKtx539idJYVlkA_bhf1FY88FbUuIR5lvEaYzwNjdAY6VA9YAYlcg/exec";
 
 const ADMIN_PASSWORD = "820822"; // 後台密碼
 
@@ -393,15 +393,27 @@ function loadZonesFromCache() {
   }
 }
 
-// 儲存品項到 Google Sheets（透過 Vercel API 中間層）
+// 儲存品項到 Google Sheets（分段 GET 傳送，避免 URL 長度限制）
 async function saveZonesToSheet(zones) {
   if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
   try {
-    await fetch("/api/save-zones", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ zones, sheetUrl: GOOGLE_SHEET_URL })
-    });
+    const json = JSON.stringify(zones);
+    const CHUNK_SIZE = 800; // 每段 800 字元
+    const chunks = [];
+    for (let i = 0; i < json.length; i += CHUNK_SIZE) {
+      chunks.push(json.slice(i, i + CHUNK_SIZE));
+    }
+    // 逐段傳送
+    for (let i = 0; i < chunks.length; i++) {
+      const url = GOOGLE_SHEET_URL
+        + "?action=saveChunk"
+        + "&idx=" + i
+        + "&total=" + chunks.length
+        + "&chunk=" + encodeURIComponent(chunks[i]);
+      await fetch(url, { method: "GET", mode: "no-cors" });
+      // 稍微等一下避免過快
+      await new Promise(r => setTimeout(r, 100));
+    }
   } catch (e) {
     console.warn("儲存品項失敗", e);
   }
