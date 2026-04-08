@@ -379,14 +379,15 @@ async function loadZonesFromSheet() {
   }
 }
 
-// 儲存品項到 Google Sheets（GET 方式，避免 CORS）
+// 儲存品項到 Google Sheets（透過 Vercel API 中間層）
 async function saveZonesToSheet(zones) {
   if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
   try {
-    const url = GOOGLE_SHEET_URL
-      + "?action=saveZones&zones="
-      + encodeURIComponent(JSON.stringify(zones));
-    await fetch(url, { method: "GET", mode: "no-cors" });
+    await fetch("/api/save-zones", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ zones, sheetUrl: GOOGLE_SHEET_URL })
+    });
   } catch (e) {
     console.warn("儲存品項失敗", e);
   }
