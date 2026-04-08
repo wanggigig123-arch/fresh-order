@@ -7,20 +7,20 @@ export default async function handler(req, res) {
 
   try {
     const { zones, sheetUrl } = req.body;
-    const zonesStr = JSON.stringify(zones);
-    const url = `${sheetUrl}?action=saveZones&zones=${encodeURIComponent(zonesStr)}`;
 
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow'
+    // 用 POST 傳送到 Apps Script
+    const response = await fetch(sheetUrl, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'saveZones', zones })
     });
 
     const text = await response.text();
-    console.log('Apps Script response:', text);
-
+    console.log('Apps Script response:', response.status, text);
     res.status(200).json({ status: 'ok', response: text });
   } catch(err) {
-    console.error('save-zones error:', err);
+    console.error('save-zones error:', err.message);
     res.status(500).json({ error: err.message });
   }
 }
