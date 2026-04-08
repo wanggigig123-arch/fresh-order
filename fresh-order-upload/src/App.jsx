@@ -969,7 +969,7 @@ function ItemsTab({ zones, setZones, showToast }) {
 // ║  庫存調配                                                ║
 // ╚══════════════════════════════════════════════════════════╝
 function StockTab({ orders }) {
-  const [actuals, setActuals] = useState({}); // { 品名: 實際到貨量 }
+  const [actuals, setActuals] = useState({});
 
   if (!orders.length) return (
     <div className="stock-panel">
@@ -980,17 +980,14 @@ function StockTab({ orders }) {
     </div>
   );
 
-  // 整理所有客戶 & 品項
   const customers = [...new Set(orders.map(o => o.name))];
-  const itemMap = {}; // { 品名: { 客戶名: 數量 } }
-
+  const itemMap = {};
   orders.forEach(o => {
     o.items.forEach(item => {
       if (!itemMap[item.name]) itemMap[item.name] = { unit: item.unit, customers: {} };
       itemMap[item.name].customers[o.name] = (itemMap[item.name].customers[o.name] || 0) + item.qty;
     });
   });
-
   const itemNames = Object.keys(itemMap).sort();
 
   const setActual = (name, val) => {
@@ -1003,14 +1000,75 @@ function StockTab({ orders }) {
     return actual !== "" && actual !== undefined && actual < total;
   });
 
+  // ── 匯出 CSV ──
+  const exportCSV = () => {
+    const week = getWeekLabel();
+    const rows = [];
+
+    // 標題行
+    rows.push([`庫存調配表 ${week}`, ...customers.map(()=>""), "", "", ""]);
+    rows.push(["品項", ...customers, "合計", "實際到貨", "差額", "狀態"]);
+
+    // 資料行
+    itemNames.forEach(name => {
+      const data = itemMap[name];
+      const total = Object.values(data.customers).reduce((a,b)=>a+b,0);
+      const actual = actuals[name];
+      const hasActual = actual !== "" && actual !== undefined;
+      const diff = hasActual ? actual - total : "";
+      const status = !hasActual ? "未填" : diff >= 0 ? "✓ 足夠" : `⚠ 缺 ${Math.abs(diff)} ${data.unit}`;
+      rows.push([
+        `${name}(${data.unit})`,
+        ...customers.map(c => data.customers[c] || 0),
+        total,
+        hasActual ? actual : "",
+        diff,
+        status
+      ]);
+    });
+
+    rows.push([]);
+    rows.push(["※ 不足品項需減量名單"]);
+    itemNames.forEach(name => {
+      const data = itemMap[name];
+      const total = Object.values(data.customers).reduce((a,b)=>a+b,0);
+      const actual = actuals[name];
+      const hasActual = actual !== "" && actual !== undefined;
+      const diff = hasActual ? actual - total : null;
+      if (!hasActual || diff >= 0) return;
+      const shortage = Math.abs(diff);
+      const sorted = Object.entries(data.customers).filter(([,q])=>q>0).sort((a,b)=>b[1]-a[1]);
+      rows.push([`【${name}】缺 ${shortage} ${data.unit}`, ...sorted.map(([c,q])=>`${c}：${q}${data.unit}`)]);
+    });
+
+    const bom = "\uFEFF";
+    const csv = bom + rows.map(row =>
+      row.map(cell => {
+        const s = String(cell ?? "");
+        return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s;
+      }).join(",")
+    ).join("\r\n");
+    const blob = new Blob([csv], { type:"text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const safe = week.replace(/\s/g,"").replace(/[（）–\/\\:*?"<>|]/g,"-");
+    a.href = url; a.download = `庫存調配表_${safe}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <div className="stock-panel">
-        <div className="stock-title">📦 庫存調配表</div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <div className="stock-title" style={{marginBottom:0}}>📦 庫存調配表</div>
+          <button className="export-btn" onClick={exportCSV}>
+            📥 匯出 CSV（可列印）
+          </button>
+        </div>
         <div className="stock-legend">
           <span>✅ 到貨量足夠</span>
           <span style={{color:"var(--red)"}}>🔴 到貨量不足（需調整）</span>
-          <span style={{color:"var(--ink3)"}}>「實際」欄填入到貨量後自動計算</span>
+          <span style={{color:"var(--ink3)"}}>「實際到貨」欄填入後自動計算差額</span>
         </div>
         <div className="stock-table-wrap">
           <table className="stock-table">
@@ -1031,7 +1089,6 @@ function StockTab({ orders }) {
                 const hasActual = actual !== "" && actual !== undefined;
                 const diff = hasActual ? actual - total : null;
                 const isShort = diff !== null && diff < 0;
-
                 return (
                   <tr key={name} className={isShort ? "stock-row-warn" : ""}>
                     <td className="item-col">{name}<span style={{fontSize:".7rem",color:"var(--ink3)",marginLeft:4}}>{data.unit}</span></td>
@@ -1039,25 +1096,16 @@ function StockTab({ orders }) {
                       <td key={c}>
                         {data.customers[c]
                           ? <span className="stock-qty" style={isShort&&data.customers[c]?{color:"var(--red)"}:{}}>{data.customers[c]}</span>
-                          : <span style={{color:"#ddd"}}>—</span>
-                        }
+                          : <span style={{color:"#ddd"}}>—</span>}
                       </td>
                     ))}
                     <td className="stock-total">{total}</td>
                     <td>
-                      <input
-                        className="stock-actual-input"
-                        type="number"
-                        min="0"
-                        placeholder="填入"
-                        value={actuals[name] ?? ""}
-                        onChange={e => setActual(name, e.target.value)}
-                      />
+                      <input className="stock-actual-input" type="number" min="0" placeholder="填入"
+                        value={actuals[name] ?? ""} onChange={e=>setActual(name,e.target.value)}/>
                     </td>
-                    <td className={isShort ? "stock-diff-warn" : "stock-diff-ok"}>
-                      {diff === null ? "—"
-                        : diff >= 0 ? `+${diff} ✓`
-                        : `${diff} ⚠`}
+                    <td className={isShort?"stock-diff-warn":"stock-diff-ok"}>
+                      {diff===null?"—":diff>=0?`+${diff} ✓`:`${diff} ⚠`}
                     </td>
                   </tr>
                 );
@@ -1067,7 +1115,6 @@ function StockTab({ orders }) {
         </div>
       </div>
 
-      {/* 不足品項提示 */}
       {hasShortage && (
         <div className="stock-panel" style={{borderLeft:"4px solid var(--red)"}}>
           <div className="stock-title" style={{color:"var(--red)"}}>⚠️ 到貨不足品項 — 需減量名單</div>
@@ -1079,19 +1126,14 @@ function StockTab({ orders }) {
             const diff = hasActual ? actual - total : null;
             if (!hasActual || diff >= 0) return null;
             const shortage = Math.abs(diff);
-
-            // 依訂購量排序，讓你知道從誰開始減
-            const sorted = Object.entries(data.customers)
-              .filter(([,qty])=>qty>0)
-              .sort((a,b)=>b[1]-a[1]);
-
+            const sorted = Object.entries(data.customers).filter(([,q])=>q>0).sort((a,b)=>b[1]-a[1]);
             return (
               <div key={name} style={{marginBottom:16,padding:"12px 14px",background:"#fff8f8",borderRadius:"var(--rs)"}}>
                 <div style={{fontWeight:700,fontSize:".9rem",marginBottom:8}}>
                   {name}（訂購 {total}、到貨 {actual}、<span style={{color:"var(--red)"}}>缺 {shortage} {data.unit}</span>）
                 </div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-                  {sorted.map(([customer, qty]) => (
+                  {sorted.map(([customer,qty])=>(
                     <div key={customer} style={{background:"#fff",border:"1.5px solid #f5b7ae",borderRadius:8,padding:"5px 12px",fontSize:".82rem"}}>
                       <span style={{fontWeight:700}}>{customer}</span>
                       <span style={{color:"var(--ink3)",marginLeft:6}}>訂 {qty} {data.unit}</span>
