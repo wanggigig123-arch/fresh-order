@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 // ╔══════════════════════════════════════════════════════════╗
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
-const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwvrFpDs3HZt369He5pD7NVRSL2rOIFloSjBvYtm-TCAYJ1fOWwgbwQfU_d06PpsTWyOA/exec";
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwxfoMvkgS0KBsjST9m_ykgLKoSmDHUUT7P_on5d6q-8chrBvgpax3Pnp8LKkeHim2Fzg/exec";
 
 const ADMIN_PASSWORD = "820822"; // 後台密碼
 
@@ -364,6 +364,36 @@ async function sendToSheet(orderData) {
   }
 }
 
+// 從 Google Sheets 讀取品項
+async function loadZonesFromSheet() {
+  if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return null;
+  try {
+    const url = GOOGLE_SHEET_URL + "?action=getZones";
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.status === "ok" && data.zones) return data.zones;
+    return null;
+  } catch (e) {
+    console.warn("讀取品項失敗", e);
+    return null;
+  }
+}
+
+// 儲存品項到 Google Sheets
+async function saveZonesToSheet(zones) {
+  if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
+  try {
+    await fetch(GOOGLE_SHEET_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "saveZones", zones })
+    });
+  } catch (e) {
+    console.warn("儲存品項失敗", e);
+  }
+}
+
 // CSV 匯出
 function downloadCSV(filename, rows) {
   const bom = "\uFEFF";
@@ -389,10 +419,19 @@ export default function App() {
   const [zones, setZones]   = useState(DEFAULT_ZONES);
   const [orders, setOrders] = useState([]);
   const [toast, setToast]   = useState(null);
-  const [adminAuthed, setAdminAuthed] = useState(false); // 後台是否已登入
+  const [adminAuthed, setAdminAuthed] = useState(false);
+  const [zonesLoading, setZonesLoading] = useState(true);
   // PWA 安裝提示
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstall, setShowInstall]       = useState(false);
+
+  // 啟動時從 Google Sheets 載入品項
+  useEffect(() => {
+    loadZonesFromSheet().then(savedZones => {
+      if (savedZones) setZones(savedZones);
+      setZonesLoading(false);
+    }).catch(() => setZonesLoading(false));
+  }, []);
 
   useEffect(() => {
     const handler = e => { e.preventDefault(); setDeferredPrompt(e); setShowInstall(true); };
@@ -409,6 +448,12 @@ export default function App() {
 
   const showToast = (msg, type="success") => {
     setToast({msg,type}); setTimeout(()=>setToast(null),3000);
+  };
+
+  // 更新品項並同步到 Google Sheets
+  const updateZones = async (newZones) => {
+    setZones(newZones);
+    await saveZonesToSheet(newZones);
   };
 
   return (
@@ -437,13 +482,18 @@ export default function App() {
       </header>
 
       {view==="order"
-        ? <OrderPage zones={zones} onOrder={async o=>{
+        ? zonesLoading
+          ? <div style={{textAlign:"center",padding:"60px",color:"var(--ink3)"}}>
+              <div style={{fontSize:"2rem",marginBottom:12}}>🌱</div>
+              <div>載入品項中…</div>
+            </div>
+          : <OrderPage zones={zones} onOrder={async o=>{
             setOrders(p=>[{...o,id:Date.now(),time:new Date().toLocaleString("zh-TW")},...p]);
             await sendToSheet(o);
             showToast(o.isLate ? "⚠️ 訂單送出（逾期標注）" : "✅ 訂單送出成功！");
           }}/>
         : adminAuthed
-          ? <AdminPage zones={zones} setZones={setZones} orders={orders} setOrders={setOrders} showToast={showToast} onLogout={()=>setAdminAuthed(false)}/>
+          ? <AdminPage zones={zones} setZones={updateZones} orders={orders} setOrders={setOrders} showToast={showToast} onLogout={()=>setAdminAuthed(false)}/>
           : <AdminLogin onSuccess={()=>setAdminAuthed(true)}/>
       }
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
