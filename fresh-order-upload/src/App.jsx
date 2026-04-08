@@ -371,10 +371,24 @@ async function loadZonesFromSheet() {
     const url = GOOGLE_SHEET_URL + "?action=getZones";
     const resp = await fetch(url);
     const data = await resp.json();
-    if (data.status === "ok" && data.zones) return data.zones;
+    if (data.status === "ok" && data.zones) {
+      // 存到 localStorage 快取
+      localStorage.setItem("fresh_zones_cache", JSON.stringify(data.zones));
+      return data.zones;
+    }
     return null;
   } catch (e) {
     console.warn("讀取品項失敗", e);
+    return null;
+  }
+}
+
+// 從 localStorage 讀取快取品項
+function loadZonesFromCache() {
+  try {
+    const cached = localStorage.getItem("fresh_zones_cache");
+    return cached ? JSON.parse(cached) : null;
+  } catch (e) {
     return null;
   }
 }
@@ -424,12 +438,24 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstall, setShowInstall]       = useState(false);
 
-  // 啟動時從 Google Sheets 載入品項
+  // 啟動時載入品項：先用快取（瞬間顯示），背景再從 Sheets 更新
   useEffect(() => {
-    loadZonesFromSheet().then(savedZones => {
-      if (savedZones) setZones(savedZones);
+    // 先檢查快取，有的話立刻顯示
+    const cached = loadZonesFromCache();
+    if (cached) {
+      setZones(cached);
       setZonesLoading(false);
-    }).catch(() => setZonesLoading(false));
+      // 背景靜默更新
+      loadZonesFromSheet().then(fresh => {
+        if (fresh) setZones(fresh);
+      });
+    } else {
+      // 沒有快取，正常等待載入
+      loadZonesFromSheet().then(savedZones => {
+        if (savedZones) setZones(savedZones);
+        setZonesLoading(false);
+      }).catch(() => setZonesLoading(false));
+    }
   }, []);
 
   useEffect(() => {
@@ -449,9 +475,12 @@ export default function App() {
     setToast({msg,type}); setTimeout(()=>setToast(null),3000);
   };
 
-  // 更新品項並同步到 Google Sheets
+  // 更新品項並同步到 Google Sheets 和快取
   const updateZones = async (newZones) => {
     setZones(newZones);
+    // 立刻存到快取
+    try { localStorage.setItem("fresh_zones_cache", JSON.stringify(newZones)); } catch(e) {}
+    // 背景存到 Sheets
     await saveZonesToSheet(newZones);
   };
 
