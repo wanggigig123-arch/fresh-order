@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 // ╔══════════════════════════════════════════════════════════╗
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
-const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwxfoMvkgS0KBsjST9m_ykgLKoSmDHUUT7P_on5d6q-8chrBvgpax3Pnp8LKkeHim2Fzg/exec";
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbxGkEScPzAFBfPkbxP78jwHOm3Z_EqHG9eHBOdIJLEX7BeODGB7ye_3wfUIjJgi8CgVyw/exec";
 
 const ADMIN_PASSWORD = "820822"; // 後台密碼
 
@@ -379,16 +379,14 @@ async function loadZonesFromSheet() {
   }
 }
 
-// 儲存品項到 Google Sheets
+// 儲存品項到 Google Sheets（GET 方式，避免 CORS）
 async function saveZonesToSheet(zones) {
   if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
   try {
-    await fetch(GOOGLE_SHEET_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "saveZones", zones })
-    });
+    const url = GOOGLE_SHEET_URL
+      + "?action=saveZones&zones="
+      + encodeURIComponent(JSON.stringify(zones));
+    await fetch(url, { method: "GET", mode: "no-cors" });
   } catch (e) {
     console.warn("儲存品項失敗", e);
   }
