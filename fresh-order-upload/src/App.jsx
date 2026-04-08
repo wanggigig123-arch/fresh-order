@@ -978,26 +978,26 @@ function UpdateTab({ zones, setZones, showToast }) {
     finally{setLoading(false);}
   };
 
-  const applyChanges=()=>{
+  const applyChanges = async () => {
     if(!diff) return;
-    let addC=0,rmC=0;
-    setZones(prev=>{
-      let nz=prev.map(z=>({...z,items:[...z.items]}));
-      diff.forEach(item=>{
-        if(!checked[item.id]) return;
-        if(item.status==="new"){
-          const zi=nz.findIndex(z=>z.id===item.zone);
-          nz[zi>=0?zi:0].items.push({id:item.id,name:item.name,emoji:item.emoji,unit:item.unit,price:item.price||null,active:true});
-          addC++;
-        }else if(item.status==="removed"){
-          nz=nz.map(z=>({...z,items:z.items.map(p=>p.id===item.id?{...p,active:false}:p)}));
-          rmC++;
-        }
-      });
-      return nz;
+    let addC=0, rmC=0;
+    // 先算出新的 zones（不用函式式更新）
+    let nz = zones.map(z=>({...z, items:[...z.items]}));
+    diff.forEach(item=>{
+      if(!checked[item.id]) return;
+      if(item.status==="new"){
+        const zi=nz.findIndex(z=>z.id===item.zone);
+        nz[zi>=0?zi:0].items.push({id:item.id,name:item.name,emoji:item.emoji,unit:item.unit,price:item.price||null,active:true});
+        addC++;
+      }else if(item.status==="removed"){
+        nz=nz.map(z=>({...z,items:z.items.map(p=>p.id===item.id?{...p,active:false}:p)}));
+        rmC++;
+      }
     });
+    // 呼叫 updateZones（會同時更新畫面、快取、Sheets）
+    await setZones(nz);
     showToast(`✅ 已新增 ${addC} 項，下架 ${rmC} 項`);
-    setDiff(null);setChecked({});setImgPreview(null);
+    setDiff(null); setChecked({}); setImgPreview(null);
   };
 
   const newC=diff?.filter(i=>i.status==="new"&&checked[i.id]).length||0;
@@ -1066,8 +1066,15 @@ function UpdateTab({ zones, setZones, showToast }) {
 // ║  品項管理                                                ║
 // ╚══════════════════════════════════════════════════════════╝
 function ItemsTab({ zones, setZones, showToast }) {
-  const toggle=(zid,iid)=>setZones(prev=>prev.map(z=>z.id!==zid?z:{...z,items:z.items.map(p=>p.id!==iid?p:{...p,active:p.active===false})}));
-  const del=(zid,iid)=>{setZones(prev=>prev.map(z=>z.id!==zid?z:{...z,items:z.items.filter(p=>p.id!==iid)}));showToast("已刪除品項");};
+  const toggle = (zid, iid) => {
+    const nz = zones.map(z=>z.id!==zid?z:{...z,items:z.items.map(p=>p.id!==iid?p:{...p,active:p.active===false})});
+    setZones(nz);
+  };
+  const del = (zid, iid) => {
+    const nz = zones.map(z=>z.id!==zid?z:{...z,items:z.items.filter(p=>p.id!==iid)});
+    setZones(nz);
+    showToast("已刪除品項");
+  };
   return(
     <div className="pm-list">
       {zones.map(z=>z.items.map(p=>(
