@@ -869,17 +869,9 @@ function UpdateTab({ zones, setZones, showToast }) {
         r.onerror=()=>rej(new Error("讀取失敗"));
         r.readAsDataURL(file);
       });
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+      const resp=await fetch("/api/analyze",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",max_tokens:1500,
-          messages:[{role:"user",content:[
-            {type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:base64}},
-            {type:"text",text:`這是一張生鮮蔬菜訂購單圖片。請辨識所有品項。
-只回傳 JSON，格式：{"items":[{"name":"品名","unit":"單位","price":數字或0,"zone":"leaf|fruit|cold|sprout|mushroom"}]}
-zone：leaf=葉菜, fruit=蔬果水果, cold=冷藏加工品, sprout=芽菜, mushroom=菇類。不要任何其他文字。`}
-          ]}]
-        })
+        body:JSON.stringify({ base64, mediaType: file.type||"image/jpeg" })
       });
       const data=await resp.json();
       const text=data.content?.map(c=>c.text||"").join("")||"";
