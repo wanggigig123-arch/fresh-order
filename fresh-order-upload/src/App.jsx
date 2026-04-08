@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 // ╔══════════════════════════════════════════════════════════╗
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
-const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyUUh5GctDV2ZKKu1LbogMBNw0qhcDQCYnlz3ReV-LaHc0dkmF9orwyE8ct4ddoH0MQiw/exec";
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwvrFpDs3HZt369He5pD7NVRSL2rOIFloSjBvYtm-TCAYJ1fOWwgbwQfU_d06PpsTWyOA/exec";
 
 const ADMIN_PASSWORD = "820822"; // 後台密碼
 
@@ -155,7 +155,17 @@ textarea.fi{resize:vertical;min-height:66px}
 .apply-btn{width:100%;margin-top:13px;padding:12px;background:linear-gradient(135deg,#2d6b28,var(--leaf2));color:#fff;border:none;border-radius:var(--rs);font-size:.93rem;font-weight:700;font-family:'Noto Sans TC',sans-serif;cursor:pointer;letter-spacing:.05em;transition:all .2s;box-shadow:0 4px 14px rgba(45,107,40,.3)}
 .apply-btn:hover{transform:translateY(-1px)}
 
-/* ── 庫存調配 ── */
+/* ── 刪除確認 ── */
+.del-confirm{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
+.del-card{background:#fff;border-radius:var(--r);padding:28px 24px;max-width:340px;width:100%;box-shadow:var(--s2);text-align:center}
+.del-icon{font-size:2.4rem;margin-bottom:10px}
+.del-title{font-family:'Noto Serif TC',serif;font-size:1.05rem;color:var(--ink);margin-bottom:6px}
+.del-sub{font-size:.83rem;color:var(--ink3);margin-bottom:20px;line-height:1.6}
+.del-btns{display:flex;gap:10px}
+.del-btn-cancel{flex:1;padding:10px;border:1.5px solid #ddd;background:#fff;border-radius:var(--rs);font-family:'Noto Sans TC',sans-serif;font-size:.88rem;cursor:pointer;transition:all .15s}
+.del-btn-cancel:hover{background:#f5f5f5}
+.del-btn-confirm{flex:1;padding:10px;border:none;background:var(--red);color:#fff;border-radius:var(--rs);font-family:'Noto Sans TC',sans-serif;font-size:.88rem;font-weight:600;cursor:pointer;transition:all .15s}
+.del-btn-confirm:hover{background:#a93226}
 .stock-panel{background:#fff;border-radius:var(--r);box-shadow:var(--s1);padding:20px;margin-bottom:16px}
 .stock-title{font-family:'Noto Serif TC',serif;font-size:.95rem;color:var(--leaf);margin-bottom:14px;display:flex;align-items:center;gap:8px}
 .stock-table-wrap{overflow-x:auto}
@@ -690,7 +700,7 @@ function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) 
         </button>
         <button className="atab" style={{marginLeft:"auto",color:"var(--red)",borderColor:"#fde8e6"}} onClick={onLogout}>🔓 登出</button>
       </div>
-      {tab==="orders" && <OrdersTab orders={orders} itemTotals={itemTotals} showToast={showToast}/>}
+      {tab==="orders" && <OrdersTab orders={orders} setOrders={setOrders} itemTotals={itemTotals} showToast={showToast}/>}
       {tab==="stock"  && <StockTab  orders={orders}/>}
       {tab==="update" && <UpdateTab zones={zones} setZones={setZones} showToast={showToast}/>}
       {tab==="items"  && <ItemsTab  zones={zones} setZones={setZones} showToast={showToast}/>}
@@ -701,15 +711,35 @@ function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  訂單列表                                                ║
 // ╚══════════════════════════════════════════════════════════╝
-function OrdersTab({ orders, itemTotals, showToast }) {
+function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
   const [search,   setSearch]   = useState("");
   const [lateOnly, setLateOnly] = useState(false);
   const [exporting,setExporting]= useState(false);
+  const [delTarget, setDelTarget] = useState(null); // 要刪除的訂單
+  const [deleting,  setDeleting]  = useState(false);
 
   const filtered = orders.filter(o=>
     (!lateOnly||o.isLate)&&
     (o.name.includes(search)||o.items.some(i=>i.name.includes(search)))
   );
+
+  // 刪除訂單
+  const confirmDelete = async () => {
+    if (!delTarget) return;
+    setDeleting(true);
+    try {
+      const url = `${GOOGLE_SHEET_URL}?action=deleteOrder&rowId=${delTarget.id}`;
+      await fetch(url, { mode: "no-cors" });
+      // 從本地移除
+      setOrders(prev => prev.filter(o => o.id !== delTarget.id));
+      showToast("✅ 訂單已刪除");
+    } catch(e) {
+      showToast("❌ 刪除失敗，請到 Google Sheets 手動刪除", "error");
+    } finally {
+      setDeleting(false);
+      setDelTarget(null);
+    }
+  };
 
   const exportCSV = () => {
     setExporting(true);
@@ -771,23 +801,45 @@ function OrdersTab({ orders, itemTotals, showToast }) {
         : <div className="otable-wrap">
             <table className="otable">
               <thead><tr>
-                <th style={{width:36}}>#</th><th>姓名</th><th>訂購品項</th><th>備註</th><th>時間</th><th>狀態</th>
+                <th style={{width:36}}>#</th><th>姓名</th><th>訂購品項</th><th>備註</th><th>時間</th><th>狀態</th><th style={{width:48}}></th>
               </tr></thead>
               <tbody>
                 {filtered.map((o,i)=>(
                   <tr key={o.id} className={o.isLate?"late-row":""}>
                     <td style={{color:"var(--ink3)",fontWeight:600}}>{filtered.length-i}</td>
                     <td style={{fontWeight:700,whiteSpace:"nowrap"}}>{o.name}{o.isLate&&<span className="late-tag">逾期</span>}</td>
-                    <td>{o.items.map(it=><span key={it.id} className="itag">{it.emoji}{it.name}×{it.qty}</span>)}</td>
+                    <td>{o.items.map(it=><span key={it.id||it.name} className="itag">{it.emoji}{it.name}×{it.qty}</span>)}</td>
                     <td style={{color:"var(--ink2)",fontSize:".81rem"}}>{o.note||"—"}</td>
                     <td style={{color:"var(--ink3)",fontSize:".77rem",whiteSpace:"nowrap"}}>{o.time}</td>
                     <td>{o.isLate?<span className="late-tag-sm">⚠ 逾期</span>:<span style={{color:"var(--leaf)",fontSize:".77rem",fontWeight:600}}>✓ 正常</span>}</td>
+                    <td>
+                      <button className="icon-btn d" title="刪除此訂單" onClick={()=>setDelTarget(o)}>🗑</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
       }
+
+      {/* 刪除確認對話框 */}
+      {delTarget && (
+        <div className="del-confirm" onClick={()=>!deleting&&setDelTarget(null)}>
+          <div className="del-card" onClick={e=>e.stopPropagation()}>
+            <div className="del-icon">🗑️</div>
+            <div className="del-title">確定要刪除這筆訂單？</div>
+            <div className="del-sub">
+              <strong>{delTarget.name}</strong> 的訂單將從 Google Sheets 永久刪除，此動作無法復原。
+            </div>
+            <div className="del-btns">
+              <button className="del-btn-cancel" onClick={()=>setDelTarget(null)} disabled={deleting}>取消</button>
+              <button className="del-btn-confirm" onClick={confirmDelete} disabled={deleting}>
+                {deleting ? "刪除中…" : "確定刪除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
