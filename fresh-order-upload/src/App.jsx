@@ -154,6 +154,28 @@ textarea.fi{resize:vertical;min-height:66px}
 .diff-toggle.unchecked{border-color:#ccc;color:#ccc}
 .apply-btn{width:100%;margin-top:13px;padding:12px;background:linear-gradient(135deg,#2d6b28,var(--leaf2));color:#fff;border:none;border-radius:var(--rs);font-size:.93rem;font-weight:700;font-family:'Noto Sans TC',sans-serif;cursor:pointer;letter-spacing:.05em;transition:all .2s;box-shadow:0 4px 14px rgba(45,107,40,.3)}
 .apply-btn:hover{transform:translateY(-1px)}
+
+/* ── 庫存調配 ── */
+.stock-panel{background:#fff;border-radius:var(--r);box-shadow:var(--s1);padding:20px;margin-bottom:16px}
+.stock-title{font-family:'Noto Serif TC',serif;font-size:.95rem;color:var(--leaf);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.stock-table-wrap{overflow-x:auto}
+.stock-table{border-collapse:collapse;font-size:.8rem;min-width:100%}
+.stock-table th{background:var(--leaf);color:#fff;padding:8px 10px;text-align:center;font-weight:500;white-space:nowrap;position:sticky;top:0}
+.stock-table th.item-col{text-align:left;min-width:80px;position:sticky;left:0;z-index:2;background:var(--leaf)}
+.stock-table td{padding:7px 10px;border-bottom:1px solid #eef4ec;text-align:center;white-space:nowrap}
+.stock-table td.item-col{text-align:left;font-weight:600;font-size:.82rem;background:#fff;position:sticky;left:0;z-index:1;border-right:1px solid #eef4ec}
+.stock-table tr:hover td{background:#f4fbf2}
+.stock-table tr:hover td.item-col{background:#f4fbf2}
+.stock-qty{font-weight:600;color:var(--ink)}
+.stock-total{font-weight:700;color:var(--leaf);background:#f0f8ee!important}
+.stock-actual-input{width:54px;border:1.5px solid #cde0c8;border-radius:5px;padding:3px 6px;text-align:center;font-family:'Noto Sans TC',sans-serif;font-size:.8rem;outline:none}
+.stock-actual-input:focus{border-color:var(--leaf2)}
+.stock-diff-ok{color:var(--leaf);font-weight:700}
+.stock-diff-warn{color:var(--red);font-weight:700;background:#fff0f0!important}
+.stock-row-warn td{background:#fff8f8}
+.stock-empty{text-align:center;padding:40px;color:var(--ink3)}
+.stock-legend{display:flex;gap:14px;font-size:.76rem;color:var(--ink3);margin-bottom:12px;flex-wrap:wrap}
+.stock-legend span{display:flex;align-items:center;gap:4px}
 .pm-list{display:flex;flex-direction:column;gap:6px}
 .pm-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border-radius:var(--rs);box-shadow:var(--s1)}
 .pm-emoji{font-size:1.3rem;min-width:26px;text-align:center}
@@ -660,6 +682,7 @@ function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) 
       </div>
       <div className="atabs">
         <button className={`atab ${tab==="orders"?"on":""}`} onClick={()=>setTab("orders")}>📋 訂單列表</button>
+        <button className={`atab ${tab==="stock"?"on":""}`}  onClick={()=>setTab("stock")}>📦 庫存調配</button>
         <button className={`atab ${tab==="update"?"on":""}`} onClick={()=>setTab("update")}>🤖 更新品項</button>
         <button className={`atab ${tab==="items"?"on":""}`}  onClick={()=>setTab("items")}>🥦 品項管理</button>
         <button className="atab" style={{color:"var(--leaf)",borderColor:"#cde0c8"}} onClick={fetchOrders} disabled={loadingOrders}>
@@ -668,6 +691,7 @@ function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) 
         <button className="atab" style={{marginLeft:"auto",color:"var(--red)",borderColor:"#fde8e6"}} onClick={onLogout}>🔓 登出</button>
       </div>
       {tab==="orders" && <OrdersTab orders={orders} itemTotals={itemTotals} showToast={showToast}/>}
+      {tab==="stock"  && <StockTab  orders={orders}/>}
       {tab==="update" && <UpdateTab zones={zones} setZones={setZones} showToast={showToast}/>}
       {tab==="items"  && <ItemsTab  zones={zones} setZones={setZones} showToast={showToast}/>}
     </div>
@@ -937,6 +961,151 @@ function ItemsTab({ zones, setZones, showToast }) {
           <button className="icon-btn d" onClick={()=>del(z.id,p.id)}>🗑</button>
         </div>
       )))}
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  庫存調配                                                ║
+// ╚══════════════════════════════════════════════════════════╝
+function StockTab({ orders }) {
+  const [actuals, setActuals] = useState({}); // { 品名: 實際到貨量 }
+
+  if (!orders.length) return (
+    <div className="stock-panel">
+      <div className="stock-empty">
+        <div style={{fontSize:"2rem",marginBottom:8}}>📭</div>
+        尚無訂單資料，請先載入訂單
+      </div>
+    </div>
+  );
+
+  // 整理所有客戶 & 品項
+  const customers = [...new Set(orders.map(o => o.name))];
+  const itemMap = {}; // { 品名: { 客戶名: 數量 } }
+
+  orders.forEach(o => {
+    o.items.forEach(item => {
+      if (!itemMap[item.name]) itemMap[item.name] = { unit: item.unit, customers: {} };
+      itemMap[item.name].customers[o.name] = (itemMap[item.name].customers[o.name] || 0) + item.qty;
+    });
+  });
+
+  const itemNames = Object.keys(itemMap).sort();
+
+  const setActual = (name, val) => {
+    setActuals(p => ({ ...p, [name]: val === "" ? "" : parseInt(val) || 0 }));
+  };
+
+  const hasShortage = itemNames.some(name => {
+    const total = Object.values(itemMap[name].customers).reduce((a,b)=>a+b,0);
+    const actual = actuals[name];
+    return actual !== "" && actual !== undefined && actual < total;
+  });
+
+  return (
+    <div>
+      <div className="stock-panel">
+        <div className="stock-title">📦 庫存調配表</div>
+        <div className="stock-legend">
+          <span>✅ 到貨量足夠</span>
+          <span style={{color:"var(--red)"}}>🔴 到貨量不足（需調整）</span>
+          <span style={{color:"var(--ink3)"}}>「實際」欄填入到貨量後自動計算</span>
+        </div>
+        <div className="stock-table-wrap">
+          <table className="stock-table">
+            <thead>
+              <tr>
+                <th className="item-col">品項</th>
+                {customers.map(c => <th key={c}>{c}</th>)}
+                <th style={{background:"#1e5a1a"}}>合計</th>
+                <th style={{background:"#1e5a1a"}}>實際到貨</th>
+                <th style={{background:"#1e5a1a"}}>差額</th>
+              </tr>
+            </thead>
+            <tbody>
+              {itemNames.map(name => {
+                const data = itemMap[name];
+                const total = Object.values(data.customers).reduce((a,b)=>a+b,0);
+                const actual = actuals[name];
+                const hasActual = actual !== "" && actual !== undefined;
+                const diff = hasActual ? actual - total : null;
+                const isShort = diff !== null && diff < 0;
+
+                return (
+                  <tr key={name} className={isShort ? "stock-row-warn" : ""}>
+                    <td className="item-col">{name}<span style={{fontSize:".7rem",color:"var(--ink3)",marginLeft:4}}>{data.unit}</span></td>
+                    {customers.map(c => (
+                      <td key={c}>
+                        {data.customers[c]
+                          ? <span className="stock-qty" style={isShort&&data.customers[c]?{color:"var(--red)"}:{}}>{data.customers[c]}</span>
+                          : <span style={{color:"#ddd"}}>—</span>
+                        }
+                      </td>
+                    ))}
+                    <td className="stock-total">{total}</td>
+                    <td>
+                      <input
+                        className="stock-actual-input"
+                        type="number"
+                        min="0"
+                        placeholder="填入"
+                        value={actuals[name] ?? ""}
+                        onChange={e => setActual(name, e.target.value)}
+                      />
+                    </td>
+                    <td className={isShort ? "stock-diff-warn" : "stock-diff-ok"}>
+                      {diff === null ? "—"
+                        : diff >= 0 ? `+${diff} ✓`
+                        : `${diff} ⚠`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 不足品項提示 */}
+      {hasShortage && (
+        <div className="stock-panel" style={{borderLeft:"4px solid var(--red)"}}>
+          <div className="stock-title" style={{color:"var(--red)"}}>⚠️ 到貨不足品項 — 需減量名單</div>
+          {itemNames.map(name => {
+            const data = itemMap[name];
+            const total = Object.values(data.customers).reduce((a,b)=>a+b,0);
+            const actual = actuals[name];
+            const hasActual = actual !== "" && actual !== undefined;
+            const diff = hasActual ? actual - total : null;
+            if (!hasActual || diff >= 0) return null;
+            const shortage = Math.abs(diff);
+
+            // 依訂購量排序，讓你知道從誰開始減
+            const sorted = Object.entries(data.customers)
+              .filter(([,qty])=>qty>0)
+              .sort((a,b)=>b[1]-a[1]);
+
+            return (
+              <div key={name} style={{marginBottom:16,padding:"12px 14px",background:"#fff8f8",borderRadius:"var(--rs)"}}>
+                <div style={{fontWeight:700,fontSize:".9rem",marginBottom:8}}>
+                  {name}（訂購 {total}、到貨 {actual}、<span style={{color:"var(--red)"}}>缺 {shortage} {data.unit}</span>）
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                  {sorted.map(([customer, qty]) => (
+                    <div key={customer} style={{background:"#fff",border:"1.5px solid #f5b7ae",borderRadius:8,padding:"5px 12px",fontSize:".82rem"}}>
+                      <span style={{fontWeight:700}}>{customer}</span>
+                      <span style={{color:"var(--ink3)",marginLeft:6}}>訂 {qty} {data.unit}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:".76rem",color:"var(--ink3)",marginTop:8}}>
+                  ↑ 依訂購量排列，建議從訂購量多的客戶開始協商減量
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
