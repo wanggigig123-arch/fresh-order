@@ -993,19 +993,40 @@ function UpdateTab({ zones, setZones, showToast }) {
   const applyChanges = async () => {
     if(!diff) return;
     let addC=0, rmC=0;
-    // 先算出新的 zones（不用函式式更新）
     let nz = zones.map(z=>({...z, items:[...z.items]}));
+
     diff.forEach(item=>{
       if(!checked[item.id]) return;
       if(item.status==="new"){
         const zi=nz.findIndex(z=>z.id===item.zone);
-        nz[zi>=0?zi:0].items.push({id:item.id,name:item.name,emoji:item.emoji,unit:item.unit,price:item.price||null,active:true});
-        addC++;
+        const target = zi>=0?zi:0;
+        // 先確認沒有同名品項才新增
+        const alreadyExists = nz[target].items.some(p=>p.name===item.name);
+        if(!alreadyExists){
+          nz[target].items.push({id:item.id,name:item.name,emoji:item.emoji,unit:item.unit,price:item.price||null,active:true});
+          addC++;
+        }
       }else if(item.status==="removed"){
         nz=nz.map(z=>({...z,items:z.items.map(p=>p.id===item.id?{...p,active:false}:p)}));
         rmC++;
       }
     });
+
+    // 去除所有重複品項（保留第一個）
+    nz = nz.map(z=>{
+      const seen = new Set();
+      const deduped = z.items.filter(p=>{
+        if(seen.has(p.name)) return false;
+        seen.add(p.name);
+        return true;
+      });
+      return {...z, items: deduped};
+    });
+
+    await setZones(nz);
+    showToast(`✅ 已新增 ${addC} 項，下架 ${rmC} 項`);
+    setDiff(null); setChecked({}); setImgPreview(null);
+  };
     // 呼叫 updateZones（會同時更新畫面、快取、Sheets）
     await setZones(nz);
     showToast(`✅ 已新增 ${addC} 項，下架 ${rmC} 項`);
