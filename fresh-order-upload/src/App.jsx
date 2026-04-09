@@ -166,6 +166,19 @@ textarea.fi{resize:vertical;min-height:66px}
 .del-btn-cancel:hover{background:#f5f5f5}
 .del-btn-confirm{flex:1;padding:10px;border:none;background:var(--red);color:#fff;border-radius:var(--rs);font-family:'Noto Sans TC',sans-serif;font-size:.88rem;font-weight:600;cursor:pointer;transition:all .15s}
 .del-btn-confirm:hover{background:#a93226}
+/* ── 修改訂單 ── */
+.edit-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:flex-end;justify-content:center}
+.edit-card{background:#fff;border-radius:var(--r) var(--r) 0 0;padding:24px 20px;width:100%;max-width:560px;max-height:85vh;overflow-y:auto}
+.edit-card-title{font-family:'Noto Serif TC',serif;font-size:1rem;color:var(--leaf);margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.edit-item-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f4ef}
+.edit-item-name{flex:1;font-size:.88rem;font-weight:600}
+.edit-qty-row{display:flex;align-items:center;gap:8px}
+.edit-qty-btn{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--leaf2);background:#fff;color:var(--leaf);font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.edit-qty-btn:hover{background:var(--leaf3)}
+.edit-qty-num{font-weight:700;min-width:20px;text-align:center;font-size:.9rem}
+.edit-save-btn{width:100%;margin-top:16px;padding:12px;background:linear-gradient(135deg,#2d6b28,var(--leaf2));color:#fff;border:none;border-radius:var(--rs);font-family:'Noto Sans TC',sans-serif;font-size:.93rem;font-weight:700;cursor:pointer}
+.edit-note-input{width:100%;border:1.5px solid #ddd;border-radius:var(--rs);padding:8px 10px;font-family:'Noto Sans TC',sans-serif;font-size:.85rem;resize:none;outline:none;margin-top:8px;box-sizing:border-box}
+.edit-note-input:focus{border-color:var(--leaf2)}
 .stock-panel{background:#fff;border-radius:var(--r);box-shadow:var(--s1);padding:20px;margin-bottom:16px}
 .stock-title{font-family:'Noto Serif TC',serif;font-size:.95rem;color:var(--leaf);margin-bottom:14px;display:flex;align-items:center;gap:8px}
 .stock-table-wrap{overflow-x:auto}
@@ -299,10 +312,11 @@ function guessEmoji(name) {
 // ╚══════════════════════════════════════════════════════════╝
 function getDeadline() {
   const now = new Date();
-  const day = now.getDay();
-  const diff = (4 - day + 7) % 7;
+  const day = now.getDay(); // 0=日,1=一,...,4=四,5=五,6=六
+  // 本週四 20:00
+  const diffToThu = (4 - day + 7) % 7;
   const thu = new Date(now);
-  thu.setDate(now.getDate() + (diff === 0 && now.getHours() >= 20 ? 7 : diff));
+  thu.setDate(now.getDate() + diffToThu);
   thu.setHours(20, 0, 0, 0);
   return thu;
 }
@@ -313,8 +327,11 @@ function useDeadlineStatus() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
   const deadline = getDeadline();
   const diff = deadline - now;
+
+  // 已截止：本週四20:00已過（diff<=0），且還沒到下週四20:00前都算截止
   const isClosed  = diff <= 0;
   const isWarning = !isClosed && diff < 2 * 60 * 60 * 1000;
   const hours = Math.floor(diff / 3600000);
@@ -326,6 +343,8 @@ function useDeadlineStatus() {
 function getWeekLabel() {
   const now = new Date();
   const day = now.getDay();
+  // 週四20:00後到週日前：顯示「下週」（下一個週一到週日）
+  // 週一到週四20:00前：顯示「下週」（下一個週一到週日）
   const monday = new Date(now);
   monday.setDate(now.getDate() + (day === 0 ? 1 : 8 - day));
   const sunday = new Date(monday);
@@ -641,12 +660,48 @@ function OrderPage({ zones, onOrder }) {
   };
 
   if (done) return (
-    <div className="pg"><div className="suc">
-      <div className="suc-icon">{isClosed?"⚠️":"🎉"}</div>
-      <div className="suc-title">{isClosed?"訂單已送出（逾期）":"感謝您的訂購！"}</div>
-      <div className="suc-sub">{name} 您好，訂單已收到。{isClosed?"此訂單為截止後送出，管理員會另行確認。":"我們會盡快確認。"}</div>
-      <button className="back-btn" onClick={()=>{setDone(false);setCart({});setName("");setNote("");}}>繼續訂購</button>
-    </div></div>
+    <div className="pg">
+      <div className="suc">
+        <div className="suc-icon">{isClosed?"⚠️":"🎉"}</div>
+        <div className="suc-title">{isClosed?"訂單已送出（逾期）":"感謝您的訂購！"}</div>
+        <div className="suc-sub">{name} 您好，訂單已收到。{isClosed?"此訂單為截止後送出，管理員會另行確認。":"我們會盡快確認。"}</div>
+      </div>
+
+      {/* 訂單明細 */}
+      <div style={{background:"#fff",borderRadius:"var(--r)",boxShadow:"var(--s1)",padding:"18px",margin:"0 16px 16px"}}>
+        <div style={{fontFamily:"'Noto Serif TC',serif",fontSize:".95rem",color:"var(--leaf)",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+          📋 您的訂單明細
+        </div>
+        <div style={{fontSize:".82rem",color:"var(--ink3)",marginBottom:10}}>
+          {getWeekLabel()} ｜ 到貨日 {getArrivalDate()}
+        </div>
+        {cartItems.map(item=>(
+          <div key={item.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #f0f0f0"}}>
+            <span style={{display:"flex",alignItems:"center",gap:6}}>
+              <span>{item.emoji}</span>
+              <span style={{fontWeight:600}}>{item.name}</span>
+            </span>
+            <span style={{fontWeight:700,color:"var(--leaf)"}}>× {item.qty} {item.unit}</span>
+          </div>
+        ))}
+        {note && (
+          <div style={{marginTop:10,fontSize:".82rem",color:"var(--ink3)",padding:"8px 10px",background:"var(--warm)",borderRadius:"var(--rs)"}}>
+            📝 備註：{note}
+          </div>
+        )}
+
+        {/* 截圖提醒 */}
+        <div style={{marginTop:14,padding:"12px",background:"#fffbe6",borderRadius:"var(--rs)",border:"1.5px dashed #f0c040",textAlign:"center"}}>
+          <div style={{fontSize:"1.3rem",marginBottom:4}}>📸</div>
+          <div style={{fontWeight:700,fontSize:".88rem",color:"#b8860b",marginBottom:3}}>請截圖保存此訂單</div>
+          <div style={{fontSize:".78rem",color:"#999"}}>如需修改或追加，請直接聯繫管理員</div>
+        </div>
+      </div>
+
+      <div style={{padding:"0 16px 24px"}}>
+        <button className="back-btn" onClick={()=>{setDone(false);setCart({});setName("");setNote("");}}>繼續訂購</button>
+      </div>
+    </div>
   );
 
   return (
@@ -802,11 +857,12 @@ function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) 
 // ║  訂單列表                                                ║
 // ╚══════════════════════════════════════════════════════════╝
 function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
-  const [search,   setSearch]   = useState("");
-  const [lateOnly, setLateOnly] = useState(false);
-  const [exporting,setExporting]= useState(false);
-  const [delTarget, setDelTarget] = useState(null); // 要刪除的訂單
+  const [search,    setSearch]    = useState("");
+  const [lateOnly,  setLateOnly]  = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [delTarget, setDelTarget] = useState(null);
   const [deleting,  setDeleting]  = useState(false);
+  const [editTarget,setEditTarget]= useState(null); // 要修改的訂單
 
   const filtered = orders.filter(o=>
     (!lateOnly||o.isLate)&&
@@ -820,7 +876,6 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
     try {
       const url = `${GOOGLE_SHEET_URL}?action=deleteOrder&rowId=${delTarget.id}`;
       await fetch(url, { mode: "no-cors" });
-      // 從本地移除
       setOrders(prev => prev.filter(o => o.id !== delTarget.id));
       showToast("✅ 訂單已刪除");
     } catch(e) {
@@ -828,6 +883,28 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
     } finally {
       setDeleting(false);
       setDelTarget(null);
+    }
+  };
+
+  // 修改訂單儲存（刪舊 + 新增）
+  const saveEdit = async (updatedOrder) => {
+    try {
+      const delUrl = `${GOOGLE_SHEET_URL}?action=deleteOrder&rowId=${updatedOrder.id}`;
+      await fetch(delUrl, { mode: "no-cors" });
+      await new Promise(r => setTimeout(r, 600));
+      const addUrl = `${GOOGLE_SHEET_URL}?data=${encodeURIComponent(JSON.stringify({
+        name: updatedOrder.name,
+        note: updatedOrder.note,
+        items: updatedOrder.items,
+        week: updatedOrder.week,
+        isLate: updatedOrder.isLate
+      }))}`;
+      await fetch(addUrl, { mode: "no-cors" });
+      setOrders(prev => prev.map(o => o.id === updatedOrder.id ? {...updatedOrder, time: o.time + "（已修改）"} : o));
+      showToast("✅ 訂單已修改");
+      setEditTarget(null);
+    } catch(e) {
+      showToast("❌ 修改失敗", "error");
     }
   };
 
@@ -891,7 +968,7 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
         : <div className="otable-wrap">
             <table className="otable">
               <thead><tr>
-                <th style={{width:36}}>#</th><th>姓名</th><th>訂購品項</th><th>備註</th><th>時間</th><th>狀態</th><th style={{width:48}}></th>
+                <th style={{width:36}}>#</th><th>姓名</th><th>訂購品項</th><th>備註</th><th>時間</th><th>狀態</th><th style={{width:72}}></th>
               </tr></thead>
               <tbody>
                 {filtered.map((o,i)=>(
@@ -902,7 +979,8 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
                     <td style={{color:"var(--ink2)",fontSize:".81rem"}}>{o.note||"—"}</td>
                     <td style={{color:"var(--ink3)",fontSize:".77rem",whiteSpace:"nowrap"}}>{o.time}</td>
                     <td>{o.isLate?<span className="late-tag-sm">⚠ 逾期</span>:<span style={{color:"var(--leaf)",fontSize:".77rem",fontWeight:600}}>✓ 正常</span>}</td>
-                    <td>
+                    <td style={{display:"flex",gap:2}}>
+                      <button className="icon-btn" title="修改此訂單" onClick={()=>setEditTarget(JSON.parse(JSON.stringify(o)))}>✏️</button>
                       <button className="icon-btn d" title="刪除此訂單" onClick={()=>setDelTarget(o)}>🗑</button>
                     </td>
                   </tr>
@@ -911,6 +989,51 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
             </table>
           </div>
       }
+
+      {/* 修改訂單 Modal */}
+      {editTarget && (
+        <div className="edit-modal" onClick={()=>setEditTarget(null)}>
+          <div className="edit-card" onClick={e=>e.stopPropagation()}>
+            <div className="edit-card-title">
+              <span>✏️ 修改訂單 — {editTarget.name}</span>
+              <button onClick={()=>setEditTarget(null)} style={{background:"none",border:"none",fontSize:"1.2rem",cursor:"pointer",color:"#999"}}>✕</button>
+            </div>
+            <div style={{fontSize:".8rem",color:"var(--ink3)",marginBottom:12}}>調整品項數量（數量設為 0 即刪除該品項）</div>
+            {editTarget.items.map((item,idx)=>(
+              <div key={item.id||item.name} className="edit-item-row">
+                <span style={{fontSize:"1.1rem"}}>{item.emoji}</span>
+                <span className="edit-item-name">{item.name}<span style={{color:"var(--ink3)",fontSize:".75rem",marginLeft:4}}>{item.unit}</span></span>
+                <div className="edit-qty-row">
+                  <button className="edit-qty-btn" onClick={()=>{
+                    const items=[...editTarget.items];
+                    items[idx]={...items[idx],qty:Math.max(0,items[idx].qty-1)};
+                    setEditTarget({...editTarget,items});
+                  }}>−</button>
+                  <span className="edit-qty-num" style={item.qty===0?{color:"#ccc"}:{}}>{item.qty}</span>
+                  <button className="edit-qty-btn" onClick={()=>{
+                    const items=[...editTarget.items];
+                    items[idx]={...items[idx],qty:items[idx].qty+1};
+                    setEditTarget({...editTarget,items});
+                  }}>＋</button>
+                </div>
+              </div>
+            ))}
+            <div style={{marginTop:12}}>
+              <div style={{fontSize:".82rem",color:"var(--ink3)",marginBottom:4}}>備註</div>
+              <textarea className="edit-note-input" rows={2} value={editTarget.note||""}
+                onChange={e=>setEditTarget({...editTarget,note:e.target.value})}
+                placeholder="備註留言（可留空）"/>
+            </div>
+            <button className="edit-save-btn" onClick={()=>{
+              const validItems = editTarget.items.filter(i=>i.qty>0);
+              if(!validItems.length){alert("至少要保留一項商品");return;}
+              saveEdit({...editTarget,items:validItems});
+            }}>
+              💾 儲存修改
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 刪除確認對話框 */}
       {delTarget && (
