@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 // ╔══════════════════════════════════════════════════════════╗
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
-const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwWdoFoRdP3a0gj9SKtx539idJYVlkA_bhf1FY88FbUuIR5lvEaYzwNjdAY6VA9YAYlcg/exec";
+const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbzXxuGyfKNRf7yUZxxx_GeESajctqXvS0viFiQlCN9fBVoyrHjSFvqltISTW8EENeP7GA/exec";
 const ADMIN_PASSWORD = "820822";
 
 // ╔══════════════════════════════════════════════════════════╗
