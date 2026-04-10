@@ -265,49 +265,44 @@ textarea.fi{resize:vertical;min-height:66px}
 // ║  品項資料                                                ║
 // ╚══════════════════════════════════════════════════════════╝
 const DEFAULT_ZONES = [
-  { id:"leaf",     label:"葉菜區", icon:"🥬", cls:"zone-leaf", items:[
-    {id:"l01",name:"包菜",        emoji:"🥬",unit:"顆",price:null},
-    {id:"l02",name:"紅蘿蔔",      emoji:"🥕",unit:"斤",price:130},
-    {id:"l03",name:"馬鈴薯",      emoji:"🥔",unit:"斤",price:130},
-    {id:"l04",name:"黃洋蔥",      emoji:"🧅",unit:"斤",price:null},
-    {id:"l05",name:"高麗菜",      emoji:"🥬",unit:"顆",price:null},
-    {id:"l06",name:"青花椰",      emoji:"🥦",unit:"顆",price:null},
-    {id:"l07",name:"白花椰",      emoji:"🤍",unit:"顆",price:null},
-    {id:"l08",name:"大蕃茄",      emoji:"🍅",unit:"斤",price:null},
-    {id:"l09",name:"大黃瓜",      emoji:"🥒",unit:"條",price:null},
-    {id:"l10",name:"小黃瓜",      emoji:"🥒",unit:"條",price:null},
-    {id:"l11",name:"青椒",        emoji:"🫑",unit:"斤",price:null},
+  { id:"leaf", label:"葉菜區", icon:"🥬", cls:"zone-leaf", items:[
+    {id:"l01",name:"包菜",        emoji:"🥬",unit:"包",price:null},
+    {id:"l02",name:"紅蘿蔔",      emoji:"🥕",unit:"包",price:130},
+    {id:"l03",name:"馬鈴薯",      emoji:"🥔",unit:"包",price:130},
+    {id:"l04",name:"黃洋蔥",      emoji:"🧅",unit:"包",price:null},
+    {id:"l05",name:"高麗菜",      emoji:"🥬",unit:"包",price:null},
+    {id:"l06",name:"白花椰",      emoji:"🤍",unit:"包",price:null},
+    {id:"l07",name:"大蕃茄",      emoji:"🍅",unit:"包",price:null},
+    {id:"l08",name:"大黃瓜",      emoji:"🥒",unit:"包",price:null},
+    {id:"l09",name:"青椒",        emoji:"🫑",unit:"包",price:null},
+    {id:"l10",name:"彩椒",        emoji:"🫑",unit:"包",price:null},
   ]},
-  { id:"fruit",    label:"蔬果區", icon:"🍎", cls:"zone-fruit", items:[
-    {id:"f01",name:"彩椒",        emoji:"🫑",unit:"斤", price:null},
-    {id:"f02",name:"紅鬚玉米筍",  emoji:"🌽",unit:"包", price:null},
-    {id:"f03",name:"牛蒡",        emoji:"🌿",unit:"斤", price:null},
-    {id:"f04",name:"獅瓜",        emoji:"🎃",unit:"條", price:null},
-    {id:"f05",name:"絲瓜",        emoji:"🥒",unit:"條", price:null},
-    {id:"f06",name:"進口蘋果(大)",emoji:"🍎",unit:"顆", price:250},
-    {id:"f07",name:"桶柑",        emoji:"🍊",unit:"斤", price:100},
-    {id:"f08",name:"鳳梨",        emoji:"🍍",unit:"顆", price:null},
-    {id:"f09",name:"珍珠芭樂",    emoji:"🍐",unit:"盒", price:null,note:"區域總量限制"},
-    {id:"f10",name:"葡萄",        emoji:"🍇",unit:"串", price:null},
-    {id:"f11",name:"小蕃茄",      emoji:"🍒",unit:"盒", price:null},
+  { id:"fruit", label:"蔬果區", icon:"🍎", cls:"zone-fruit", items:[
+    {id:"f01",name:"絲瓜",        emoji:"🥒",unit:"包", price:null},
+    {id:"f02",name:"牛蒡",        emoji:"🌿",unit:"包", price:null},
+    {id:"f03",name:"青苦瓜",      emoji:"🥒",unit:"包", price:null},
+    {id:"f04",name:"進口蘋果(大)",emoji:"🍎",unit:"包", price:250},
+    {id:"f05",name:"鳳梨",        emoji:"🍍",unit:"包", price:null},
+    {id:"f06",name:"珍珠芭樂",    emoji:"🍐",unit:"盒", price:null,note:"區域總量限制"},
+    {id:"f07",name:"葡萄",        emoji:"🍇",unit:"包", price:null},
   ]},
-  { id:"cold",     label:"冷藏區", icon:"❄️", cls:"zone-cold", items:[
+  { id:"cold", label:"冷藏區", icon:"❄️", cls:"zone-cold", items:[
     {id:"c01",name:"吉祥蛋",      emoji:"🥚",unit:"盒",price:135},
     {id:"c02",name:"紅吉蛋",      emoji:"🥚",unit:"盒",price:140},
     {id:"c03",name:"豆腐",        emoji:"🫙",unit:"盒",price:55},
     {id:"c04",name:"豆干",        emoji:"🫙",unit:"包",price:65},
-    {id:"c05",name:"味噌",        emoji:"🍜",unit:"包",price:115},
+    {id:"c05",name:"味噌",        emoji:"🍜",unit:"盒",price:115},
     {id:"c06",name:"蘿蔔乾",      emoji:"🥡",unit:"包",price:300},
   ]},
-  { id:"sprout",   label:"芽菜區", icon:"🌱", cls:"zone-sprout", items:[
-    {id:"s01",name:"綠豆芽",      emoji:"🌱",unit:"包",price:55},
-    {id:"s02",name:"黃豆芽",      emoji:"🌿",unit:"包",price:55},
-    {id:"s03",name:"黑豆芽",      emoji:"🌿",unit:"包",price:50},
+  { id:"sprout", label:"芽菜區", icon:"🌱", cls:"zone-sprout", items:[
+    {id:"s01",name:"綠豆芽",      emoji:"🌱",unit:"盒",price:55},
+    {id:"s02",name:"黃豆芽",      emoji:"🌿",unit:"盒",price:55},
+    {id:"s03",name:"黑豆芽",      emoji:"🌿",unit:"盒",price:50},
   ]},
   { id:"mushroom", label:"菇菇區", icon:"🍄", cls:"zone-mushroom", items:[
     {id:"m01",name:"蘑菇",        emoji:"🍄",unit:"盒",price:null},
     {id:"m02",name:"金針菇",      emoji:"🍄",unit:"包",price:40},
-    {id:"m03",name:"木耳",        emoji:"🍄",unit:"包",price:87},
+    {id:"m03",name:"木耳",        emoji:"🍄",unit:"包",price:95},
     {id:"m04",name:"白柳菇",      emoji:"🍄",unit:"包",price:85},
     {id:"m05",name:"杏鮑菇",      emoji:"🍄",unit:"包",price:350},
     {id:"m06",name:"生香菇(中)",  emoji:"🍄",unit:"盒",price:130},
@@ -1216,6 +1211,9 @@ function UpdateTab({ zones, setZones, showToast }) {
 // ║  品項管理                                                ║
 // ╚══════════════════════════════════════════════════════════╝
 function ItemsTab({ zones, setZones, showToast }) {
+  const [editTarget, setEditTarget] = useState(null); // {zid, item}
+  const [editForm,   setEditForm]   = useState({});   // {name, unit, price}
+
   const toggle = (zid,iid) => {
     setZones(zones.map(z=>z.id!==zid?z:{...z,items:z.items.map(p=>p.id!==iid?p:{...p,active:p.active===false})}));
   };
@@ -1223,22 +1221,79 @@ function ItemsTab({ zones, setZones, showToast }) {
     setZones(zones.map(z=>z.id!==zid?z:{...z,items:z.items.filter(p=>p.id!==iid)}));
     showToast("已刪除品項");
   };
-  return(
-    <div className="pm-list">
-      {zones.map(z=>z.items.map(p=>(
-        <div key={p.id} className="pm-item">
-          <span className="pm-emoji">{p.emoji}</span>
-          <div className="pm-info">
-            <div className="pm-name">{p.name}</div>
-            <div className="pm-meta">{p.unit}{p.price?` ／ NT$${p.price}`:""}</div>
+  const openEdit = (zid, item) => {
+    setEditTarget({zid, iid: item.id});
+    setEditForm({ name: item.name, unit: item.unit, price: item.price ?? "" });
+  };
+  const saveEdit = () => {
+    if (!editForm.name.trim()) { alert("品名不能空白"); return; }
+    if (!editForm.unit.trim()) { alert("單位不能空白"); return; }
+    const newPrice = editForm.price === "" ? null : (parseInt(editForm.price) || null);
+    setZones(zones.map(z => z.id !== editTarget.zid ? z : {
+      ...z, items: z.items.map(p => p.id !== editTarget.iid ? p : {
+        ...p, name: editForm.name.trim(), unit: editForm.unit.trim(), price: newPrice
+      })
+    }));
+    showToast("✅ 品項已更新");
+    setEditTarget(null);
+  };
+
+  return (
+    <>
+      <div className="pm-list">
+        {zones.map(z=>z.items.map(p=>(
+          <div key={p.id} className="pm-item">
+            <span className="pm-emoji">{p.emoji}</span>
+            <div className="pm-info">
+              <div className="pm-name">{p.name}</div>
+              <div className="pm-meta">{p.unit}{p.price?` ／ NT$${p.price}`:""}</div>
+            </div>
+            <span className="pm-zone">{z.label}</span>
+            <span className={`pill ${p.active===false?"pill-off":"pill-on"}`}>{p.active===false?"下架":"上架"}</span>
+            <button className="icon-btn" title="編輯" onClick={()=>openEdit(z.id,p)}>✏️</button>
+            <button className="icon-btn" onClick={()=>toggle(z.id,p.id)}>{p.active===false?"▶️":"⏸"}</button>
+            <button className="icon-btn d" onClick={()=>del(z.id,p.id)}>🗑</button>
           </div>
-          <span className="pm-zone">{z.label}</span>
-          <span className={`pill ${p.active===false?"pill-off":"pill-on"}`}>{p.active===false?"下架":"上架"}</span>
-          <button className="icon-btn" onClick={()=>toggle(z.id,p.id)}>{p.active===false?"▶️":"⏸"}</button>
-          <button className="icon-btn d" onClick={()=>del(z.id,p.id)}>🗑</button>
+        )))}
+      </div>
+
+      {/* 編輯品項 Modal */}
+      {editTarget && (
+        <div className="edit-modal" onClick={()=>setEditTarget(null)}>
+          <div className="edit-card" onClick={e=>e.stopPropagation()}>
+            <div className="edit-card-title">
+              <span>✏️ 編輯品項</span>
+              <button onClick={()=>setEditTarget(null)} style={{background:"none",border:"none",fontSize:"1.2rem",cursor:"pointer",color:"#999"}}>✕</button>
+            </div>
+
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div className="fg">
+                <label className="fl">品名</label>
+                <input className="fi" value={editForm.name}
+                  onChange={e=>setEditForm(f=>({...f,name:e.target.value}))}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div className="fg">
+                  <label className="fl">單位（例：包、盒、顆）</label>
+                  <input className="fi" value={editForm.unit}
+                    onChange={e=>setEditForm(f=>({...f,unit:e.target.value}))}/>
+                </div>
+                <div className="fg">
+                  <label className="fl">價格（NT$，留空表示不顯示）</label>
+                  <input className="fi" type="number" min="0" placeholder="選填"
+                    value={editForm.price}
+                    onChange={e=>setEditForm(f=>({...f,price:e.target.value}))}/>
+                </div>
+              </div>
+            </div>
+
+            <button className="edit-save-btn" style={{marginTop:18}} onClick={saveEdit}>
+              💾 儲存
+            </button>
+          </div>
         </div>
-      )))}
-    </div>
+      )}
+    </>
   );
 }
 
