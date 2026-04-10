@@ -4,8 +4,7 @@ import { useState, useRef, useEffect } from "react";
 // ║  🔧 設定區 — 只需要改這裡                                ║
 // ╚══════════════════════════════════════════════════════════╝
 const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbwWdoFoRdP3a0gj9SKtx539idJYVlkA_bhf1FY88FbUuIR5lvEaYzwNjdAY6VA9YAYlcg/exec";
-
-const ADMIN_PASSWORD = "820822"; // 後台密碼
+const ADMIN_PASSWORD = "820822";
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  樣式                                                    ║
@@ -194,6 +193,16 @@ textarea.fi{resize:vertical;min-height:66px}
 .edit-save-btn{width:100%;margin-top:16px;padding:12px;background:linear-gradient(135deg,#2d6b28,var(--leaf2));color:#fff;border:none;border-radius:var(--rs);font-family:'Noto Sans TC',sans-serif;font-size:.93rem;font-weight:700;cursor:pointer}
 .edit-note-input{width:100%;border:1.5px solid #ddd;border-radius:var(--rs);padding:8px 10px;font-family:'Noto Sans TC',sans-serif;font-size:.85rem;resize:none;outline:none;margin-top:8px;box-sizing:border-box}
 .edit-note-input:focus{border-color:var(--leaf2)}
+/* ── 收單開關 ── */
+.order-toggle-bar{border-radius:var(--r);padding:16px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:14px;box-shadow:var(--s1)}
+.order-toggle-bar.is-open{background:linear-gradient(135deg,#1a5c16,var(--leaf));color:#fff}
+.order-toggle-bar.is-closed{background:linear-gradient(135deg,#6b1f1f,var(--red));color:#fff}
+.toggle-info{flex:1}
+.toggle-label{font-family:'Noto Serif TC',serif;font-size:1rem;font-weight:700;margin-bottom:3px}
+.toggle-sub{font-size:.78rem;opacity:.85}
+.toggle-btn{padding:9px 20px;border-radius:20px;border:2px solid rgba(255,255,255,.7);background:rgba(255,255,255,.18);color:#fff;font-family:'Noto Sans TC',sans-serif;font-size:.86rem;font-weight:700;cursor:pointer;transition:all .2s;white-space:nowrap}
+.toggle-btn:hover{background:rgba(255,255,255,.32)}
+.toggle-btn:disabled{opacity:.5;cursor:not-allowed}
 .stock-panel{background:#fff;border-radius:var(--r);box-shadow:var(--s1);padding:20px;margin-bottom:16px}
 .stock-title{font-family:'Noto Serif TC',serif;font-size:.95rem;color:var(--leaf);margin-bottom:14px;display:flex;align-items:center;gap:8px}
 .stock-table-wrap{overflow-x:auto}
@@ -236,7 +245,6 @@ textarea.fi{resize:vertical;min-height:66px}
 .toast.success{background:var(--leaf)}
 .toast.error{background:var(--red)}
 @keyframes ti{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-/* ── 後台登入 ── */
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--cream)}
 .login-card{background:#fff;border-radius:var(--r);padding:40px 32px;box-shadow:var(--s2);width:100%;max-width:360px;text-align:center}
 .login-icon{font-size:2.8rem;margin-bottom:12px}
@@ -325,27 +333,50 @@ function guessEmoji(name) {
 // ║  工具函式                                                ║
 // ╚══════════════════════════════════════════════════════════╝
 
-// 取得「本週四 20:00」的截止時間物件
+// 本週四 20:00
 function getThisDeadline() {
   const now = new Date();
-  const day = now.getDay(); // 0=日,1=一,...,4=四
+  const day = now.getDay();
   const diffToThu = (4 - day + 7) % 7;
   const thu = new Date(now);
-  thu.setDate(now.getDate() + diffToThu);
+  thu.setDate(now.getDate() + (diffToThu === 0 ? 0 : diffToThu));
   thu.setHours(20, 0, 0, 0);
   return thu;
 }
 
-// 取得「下週四 20:00」的截止時間
-function getNextDeadline() {
-  const thu = getThisDeadline();
-  const next = new Date(thu);
-  next.setDate(thu.getDate() + 7);
-  return next;
+// ── 收單開關：從 Google Sheets 讀取（A3 儲存 "open" 或 "closed"）──
+async function fetchOrderOpen() {
+  if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return true;
+  try {
+    const resp = await fetch(GOOGLE_SHEET_URL + "?action=getOrderOpen");
+    const data = await resp.json();
+    return data.open === true;
+  } catch(e) {
+    return true; // 讀取失敗預設開放
+  }
 }
 
-// 倒數 Hook：截止後顯示「已截止」，不跳到下週倒數
-function useDeadlineStatus() {
+async function saveOrderOpen(open) {
+  if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
+  try {
+    await fetch(GOOGLE_SHEET_URL + "?action=setOrderOpen&value=" + (open ? "open" : "closed"), { mode: "no-cors" });
+  } catch(e) {
+    console.warn("儲存收單狀態失敗", e);
+  }
+}
+
+// ── isClosed 判斷邏輯：
+// 1. 後台手動關閉（adminOpen === false）→ 截止
+// 2. 本週四 20:00 已過（deadlinePassed）→ 截止
+// 其餘 = 收單中
+function calcIsClosed(adminOpen, now) {
+  if (!adminOpen) return true;
+  const deadline = getThisDeadline();
+  return now >= deadline;
+}
+
+// 倒數 Hook
+function useDeadlineStatus(adminOpen) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -353,15 +384,12 @@ function useDeadlineStatus() {
   }, []);
 
   const deadline = getThisDeadline();
+  const isClosed = calcIsClosed(adminOpen, now);
   const diff = deadline - now;
-
-  // 截止：本週四 20:00 已過（diff <= 0），維持「已截止」直到下週期間
-  const isClosed  = diff <= 0;
-  const isWarning = !isClosed && diff < 2 * 60 * 60 * 1000;
+  const isWarning = !isClosed && diff < 2 * 60 * 60 * 1000 && diff > 0;
   const hours = Math.max(0, Math.floor(diff / 3600000));
   const mins  = Math.max(0, Math.floor((diff % 3600000) / 60000));
   const secs  = Math.max(0, Math.floor((diff % 60000) / 1000));
-
   return { deadline, isClosed, isWarning, hours, mins, secs };
 }
 
@@ -376,7 +404,6 @@ function getWeekLabel() {
   return `下週 ${fmt(monday)}（一）– ${fmt(sunday)}（日）`;
 }
 
-// 取得下週二到貨日
 function getArrivalDate() {
   const now = new Date();
   const day = now.getDay();
@@ -387,49 +414,38 @@ function getArrivalDate() {
   return `${fmt(tuesday)}（二）`;
 }
 
-// 取得本週四截止日（顯示用）
 function getDeadlineDate() {
   const deadline = getThisDeadline();
   const fmt = d => `${d.getMonth()+1}/${d.getDate()}`;
   return `${fmt(deadline)}（四）`;
 }
 
-// 送訂單到 Google Sheets
 async function sendToSheet(orderData) {
   if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
   try {
     const url = GOOGLE_SHEET_URL + "?data=" + encodeURIComponent(JSON.stringify(orderData));
     await fetch(url, { method: "GET", mode: "no-cors" });
-  } catch (e) {
-    console.warn("Google Sheet 連線失敗", e);
-  }
+  } catch (e) { console.warn("Google Sheet 連線失敗", e); }
 }
 
-// 從 Google Sheets 讀取品項
 async function loadZonesFromSheet() {
   if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return null;
   try {
-    const url = GOOGLE_SHEET_URL + "?action=getZones";
-    const resp = await fetch(url);
+    const resp = await fetch(GOOGLE_SHEET_URL + "?action=getZones");
     const data = await resp.json();
     if (data.status === "ok" && data.zones) {
       localStorage.setItem("fresh_zones_cache", JSON.stringify(data.zones));
       return data.zones;
     }
     return null;
-  } catch (e) {
-    console.warn("讀取品項失敗", e);
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
 function loadZonesFromCache() {
   try {
     const cached = localStorage.getItem("fresh_zones_cache");
     return cached ? JSON.parse(cached) : null;
-  } catch (e) {
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
 async function saveZonesToSheet(zones) {
@@ -438,21 +454,13 @@ async function saveZonesToSheet(zones) {
     const json = JSON.stringify(zones);
     const CHUNK_SIZE = 800;
     const chunks = [];
-    for (let i = 0; i < json.length; i += CHUNK_SIZE) {
-      chunks.push(json.slice(i, i + CHUNK_SIZE));
-    }
+    for (let i = 0; i < json.length; i += CHUNK_SIZE) chunks.push(json.slice(i, i + CHUNK_SIZE));
     for (let i = 0; i < chunks.length; i++) {
-      const url = GOOGLE_SHEET_URL
-        + "?action=saveChunk"
-        + "&idx=" + i
-        + "&total=" + chunks.length
-        + "&chunk=" + encodeURIComponent(chunks[i]);
+      const url = GOOGLE_SHEET_URL + "?action=saveChunk&idx=" + i + "&total=" + chunks.length + "&chunk=" + encodeURIComponent(chunks[i]);
       await fetch(url, { method: "GET", mode: "no-cors" });
       await new Promise(r => setTimeout(r, 100));
     }
-  } catch (e) {
-    console.warn("儲存品項失敗", e);
-  }
+  } catch (e) { console.warn("儲存品項失敗", e); }
 }
 
 function downloadCSV(filename, rows) {
@@ -460,13 +468,12 @@ function downloadCSV(filename, rows) {
   const csv = bom + rows.map(row =>
     row.map(cell => {
       const s = String(cell ?? "");
-      return s.includes(",") || s.includes('"') || s.includes("\n")
-        ? `"${s.replace(/"/g,'""')}"` : s;
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g,'""')}"` : s;
     }).join(",")
   ).join("\r\n");
   const blob = new Blob([csv], { type:"text/csv;charset=utf-8;" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
@@ -475,29 +482,31 @@ function downloadCSV(filename, rows) {
 // ║  主 App                                                  ║
 // ╚══════════════════════════════════════════════════════════╝
 export default function App() {
-  const [view, setView]     = useState("order");
-  const [zones, setZones]   = useState(DEFAULT_ZONES);
-  const [orders, setOrders] = useState([]);
-  const [toast, setToast]   = useState(null);
+  const [view, setView]         = useState("order");
+  const [zones, setZones]       = useState(DEFAULT_ZONES);
+  const [orders, setOrders]     = useState([]);
+  const [toast, setToast]       = useState(null);
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [zonesLoading, setZonesLoading] = useState(true);
+  const [adminOpen, setAdminOpen] = useState(true); // 後台開關狀態
   const [deferredPrompt, setDeferredPrompt] = useState(null);
-  const [showInstall, setShowInstall]       = useState(false);
+  const [showInstall, setShowInstall] = useState(false);
 
+  // 啟動時載入品項 + 收單狀態
   useEffect(() => {
     const cached = loadZonesFromCache();
     if (cached) {
       setZones(cached);
       setZonesLoading(false);
-      loadZonesFromSheet().then(fresh => {
-        if (fresh) setZones(fresh);
-      });
+      loadZonesFromSheet().then(fresh => { if (fresh) setZones(fresh); });
     } else {
       loadZonesFromSheet().then(savedZones => {
         if (savedZones) setZones(savedZones);
         setZonesLoading(false);
       }).catch(() => setZonesLoading(false));
     }
+    // 讀取收單開關
+    fetchOrderOpen().then(open => setAdminOpen(open));
   }, []);
 
   useEffect(() => {
@@ -523,22 +532,24 @@ export default function App() {
     await saveZonesToSheet(newZones);
   };
 
+  // 切換收單開關（後台用）
+  const toggleOrderOpen = async (newOpen) => {
+    setAdminOpen(newOpen);
+    await saveOrderOpen(newOpen);
+    showToast(newOpen ? "✅ 已開放收單" : "🔴 已關閉收單");
+  };
+
   return (
     <>
       <style>{STYLE}</style>
-
       {showInstall && (
         <div className="pwa-banner" style={{margin:"8px 16px 0"}}>
           <span style={{fontSize:"1.4rem"}}>📲</span>
-          <div className="pwa-banner-text">
-            <strong>加入主畫面</strong>，像 App 一樣使用！<br/>
-            下次直接從桌面開啟，不用記網址。
-          </div>
+          <div className="pwa-banner-text"><strong>加入主畫面</strong>，像 App 一樣使用！<br/>下次直接從桌面開啟，不用記網址。</div>
           <button className="pwa-install-btn" onClick={installPWA}>安裝</button>
           <button className="pwa-close" onClick={()=>setShowInstall(false)}>✕</button>
         </div>
       )}
-
       <header className="hd">
         <div className="hd-logo"><span>🌾</span>鮮採直送 訂購平台</div>
         <div className="hd-tabs">
@@ -550,15 +561,19 @@ export default function App() {
       {view==="order"
         ? zonesLoading
           ? <div style={{textAlign:"center",padding:"60px",color:"var(--ink3)"}}>
-              <div style={{fontSize:"2rem",marginBottom:12}}>🌱</div>
-              <div>載入品項中…</div>
+              <div style={{fontSize:"2rem",marginBottom:12}}>🌱</div><div>載入品項中…</div>
             </div>
-          : <OrderPage zones={zones} onOrder={async o=>{
-            setOrders(p=>[{...o,id:Date.now(),time:new Date().toLocaleString("zh-TW")},...p]);
-            await sendToSheet(o);
-          }}/>
+          : <OrderPage zones={zones} adminOpen={adminOpen} onOrder={async o=>{
+              setOrders(p=>[{...o,id:Date.now(),time:new Date().toLocaleString("zh-TW")},...p]);
+              await sendToSheet(o);
+            }}/>
         : adminAuthed
-          ? <AdminPage zones={zones} setZones={updateZones} orders={orders} setOrders={setOrders} showToast={showToast} onLogout={()=>setAdminAuthed(false)}/>
+          ? <AdminPage
+              zones={zones} setZones={updateZones}
+              orders={orders} setOrders={setOrders}
+              showToast={showToast} onLogout={()=>setAdminAuthed(false)}
+              adminOpen={adminOpen} onToggleOpen={toggleOrderOpen}
+            />
           : <AdminLogin onSuccess={()=>setAdminAuthed(true)}/>
       }
       {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
@@ -570,21 +585,13 @@ export default function App() {
 // ║  後台登入頁                                              ║
 // ╚══════════════════════════════════════════════════════════╝
 function AdminLogin({ onSuccess }) {
-  const [pwd, setPwd]   = useState("");
-  const [err, setErr]   = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [err, setErr] = useState(false);
   const [shake, setShake] = useState(false);
-
   const login = () => {
-    if (pwd === ADMIN_PASSWORD) {
-      onSuccess();
-    } else {
-      setErr(true);
-      setShake(true);
-      setPwd("");
-      setTimeout(() => setShake(false), 500);
-    }
+    if (pwd === ADMIN_PASSWORD) { onSuccess(); }
+    else { setErr(true); setShake(true); setPwd(""); setTimeout(()=>setShake(false),500); }
   };
-
   return (
     <div className="login-wrap">
       <div className="login-card" style={shake?{animation:"shake .4s ease"}:{}}>
@@ -592,15 +599,9 @@ function AdminLogin({ onSuccess }) {
         <div className="login-icon">🔐</div>
         <div className="login-title">後台管理</div>
         <div className="login-sub">請輸入管理員密碼</div>
-        <input
-          className="login-input"
-          type="password"
-          placeholder="••••••"
-          value={pwd}
-          onChange={e=>{ setPwd(e.target.value); setErr(false); }}
-          onKeyDown={e=>e.key==="Enter"&&login()}
-          autoFocus
-        />
+        <input className="login-input" type="password" placeholder="••••••" value={pwd}
+          onChange={e=>{setPwd(e.target.value);setErr(false);}}
+          onKeyDown={e=>e.key==="Enter"&&login()} autoFocus/>
         <button className="login-btn" onClick={login}>進入後台</button>
         {err && <div className="login-err">❌ 密碼錯誤，請再試一次</div>}
       </div>
@@ -611,24 +612,33 @@ function AdminLogin({ onSuccess }) {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  DeadlineBanner                                         ║
 // ╚══════════════════════════════════════════════════════════╝
-function DeadlineBanner() {
-  const { deadline, isClosed, isWarning, hours, mins, secs } = useDeadlineStatus();
+function DeadlineBanner({ adminOpen }) {
+  const { deadline, isClosed, isWarning, hours, mins, secs } = useDeadlineStatus(adminOpen);
   const cls  = isClosed ? "closed" : isWarning ? "warning" : "open";
   const icon = isClosed ? "🔒" : isWarning ? "⚠️" : "🕗";
   const fmt  = deadline.toLocaleString("zh-TW",{month:"numeric",day:"numeric",weekday:"short",hour:"2-digit",minute:"2-digit"});
+
+  // 截止原因說明
+  const closedReason = !adminOpen ? "本週菜單準備中" : "本週收單已截止";
+
   return (
     <div className={`deadline-banner ${cls}`}>
       <div className="dl-icon">{icon}</div>
       <div className="dl-text">
-        <div className="dl-title">{isClosed?"本週收單已截止":isWarning?"即將截止，請盡快下單！":"收單進行中"}</div>
-        <div className="dl-sub">截止時間：{fmt}</div>
+        <div className="dl-title">{isClosed ? closedReason : isWarning ? "即將截止，請盡快下單！" : "收單進行中"}</div>
+        <div className="dl-sub">
+          {isClosed && !adminOpen
+            ? "菜單更新後即開放訂購，歡迎屆時再來"
+            : `截止時間：${fmt}`
+          }
+        </div>
       </div>
       <div className="dl-countdown">
         {isClosed
           ? <div className="dl-time">已截止</div>
           : <div className="dl-time">{String(hours).padStart(2,"0")}:{String(mins).padStart(2,"0")}:{String(secs).padStart(2,"0")}</div>
         }
-        <div className="dl-label">{isClosed?"下週四重新開放":"剩餘時間"}</div>
+        <div className="dl-label">{isClosed ? "仍可留單（逾期標注）" : "剩餘時間"}</div>
       </div>
     </div>
   );
@@ -637,14 +647,14 @@ function DeadlineBanner() {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  訂購頁                                                  ║
 // ╚══════════════════════════════════════════════════════════╝
-function OrderPage({ zones, onOrder }) {
+function OrderPage({ zones, adminOpen, onOrder }) {
   const [cart, setCart]     = useState({});
   const [name, setName]     = useState("");
   const [note, setNote]     = useState("");
   const [done, setDone]     = useState(false);
   const [sending, setSending] = useState(false);
-  const [submittedData, setSubmittedData] = useState(null); // 儲存已送出的訂單資料
-  const { isClosed } = useDeadlineStatus();
+  const [submittedData, setSubmittedData] = useState(null);
+  const { isClosed } = useDeadlineStatus(adminOpen);
 
   const change = (id,delta) => setCart(p=>{
     const v=Math.max(0,(p[id]||0)+delta);
@@ -664,25 +674,23 @@ function OrderPage({ zones, onOrder }) {
     const orderData = {name:name.trim(),note:note.trim(),items:cartItems,week:getWeekLabel(),isLate:isClosed};
     await onOrder(orderData);
     setSending(false);
-    setSubmittedData({ ...orderData, cartItems, noteCopy: note.trim() });
+    setSubmittedData({...orderData, cartItems:[...cartItems], noteCopy:note.trim()});
     setDone(true);
   };
 
-  // ── 訂單完成頁（含截圖明細）──
+  // ── 訂單完成頁 ──
   if (done && submittedData) {
-    const { name: sName, cartItems: sItems, noteCopy, isLate } = submittedData;
+    const { name:sName, cartItems:sItems, noteCopy, isLate } = submittedData;
     return (
       <div className="pg">
         <div className="suc">
-          <div className="suc-icon">{isLate ? "⚠️" : "🎉"}</div>
-          <div className="suc-title">{isLate ? "訂單已送出（逾期）" : "感謝您的訂購！"}</div>
+          <div className="suc-icon">{isLate?"⚠️":"🎉"}</div>
+          <div className="suc-title">{isLate?"訂單已送出（逾期）":"感謝您的訂購！"}</div>
           <div className="suc-sub">
             {sName} 您好，訂單已收到。
-            {isLate ? "此訂單為截止後送出，管理員會另行確認。" : "我們會盡快確認。"}
+            {isLate?"此訂單為截止後送出，管理員會另行確認。":"我們會盡快確認。"}
           </div>
         </div>
-
-        {/* 訂單明細卡（供截圖） */}
         <div className="receipt-card">
           <div className="receipt-header">
             <span style={{fontSize:"1.8rem"}}>🌾</span>
@@ -692,57 +700,32 @@ function OrderPage({ zones, onOrder }) {
             </div>
             {isLate && <span className="late-tag" style={{marginLeft:"auto"}}>逾期</span>}
           </div>
-
           <div style={{marginBottom:14}}>
             <div className="receipt-name">👤 {sName}</div>
-            {noteCopy && (
-              <div className="receipt-note">📝 備註：{noteCopy}</div>
-            )}
+            {noteCopy && <div className="receipt-note">📝 備註：{noteCopy}</div>}
           </div>
-
           <div style={{borderTop:"1.5px solid #eef4ec",paddingTop:10}}>
-            {sItems.map(item => (
+            {sItems.map(item=>(
               <div key={item.id} className="receipt-item-row">
-                <span className="receipt-item-name">
-                  <span>{item.emoji}</span>
-                  <span>{item.name}</span>
-                </span>
+                <span className="receipt-item-name"><span>{item.emoji}</span><span>{item.name}</span></span>
                 <span className="receipt-item-qty">× {item.qty} {item.unit}</span>
               </div>
             ))}
           </div>
-
-          <div style={{
-            marginTop:14,
-            padding:"8px 12px",
-            background:"var(--leaf4)",
-            borderRadius:"var(--rs)",
-            fontSize:".78rem",
-            color:"var(--ink2)",
-            display:"flex",
-            gap:6,
-            alignItems:"center"
-          }}>
+          <div style={{marginTop:14,padding:"8px 12px",background:"var(--leaf4)",borderRadius:"var(--rs)",fontSize:".78rem",color:"var(--ink2)",display:"flex",gap:6,alignItems:"center"}}>
             <span>🕐</span>
             <span>截止：{getDeadlineDate()} 20:00 ｜ 到貨：{getArrivalDate()}</span>
           </div>
-
-          {/* 截圖提示 */}
           <div className="screenshot-hint">
             <div className="screenshot-hint-icon">📸</div>
             <div className="screenshot-hint-title">請截圖保存此訂單明細</div>
             <div className="screenshot-hint-sub">如需修改或追加，請直接聯繫管理員</div>
           </div>
         </div>
-
         <div style={{padding:"0 0 32px"}}>
-          <button className="back-btn" onClick={()=>{
-            setDone(false);
-            setCart({});
-            setName("");
-            setNote("");
-            setSubmittedData(null);
-          }}>繼續訂購</button>
+          <button className="back-btn" onClick={()=>{setDone(false);setCart({});setName("");setNote("");setSubmittedData(null);}}>
+            繼續訂購
+          </button>
         </div>
       </div>
     );
@@ -750,7 +733,7 @@ function OrderPage({ zones, onOrder }) {
 
   return (
     <div className="pg">
-      <DeadlineBanner/>
+      <DeadlineBanner adminOpen={adminOpen}/>
       <div className="wk-banner">
         <div>
           <div className="wk-title">📅 {getWeekLabel()} 預訂單</div>
@@ -794,7 +777,12 @@ function OrderPage({ zones, onOrder }) {
 
       <div className="oform">
         <div className="oform-title">🧾 確認訂單</div>
-        {isClosed&&<div className="late-warn-box">⚠️ 本週收單已截止（週四 20:00），此訂單將標記為「逾期」，請聯絡管理員確認是否受理。</div>}
+        {isClosed && (
+          <div className="late-warn-box">
+            ⚠️ {!adminOpen ? "本週菜單準備中，尚未開放收單。" : "本週收單已截止（週四 20:00）。"}
+            此訂單將標記為「逾期」，管理員會另行確認。
+          </div>
+        )}
         <div className="cart-box">
           {!cartItems.length
             ? <div className="cart-empty">尚未選擇品項</div>
@@ -828,38 +816,33 @@ function OrderPage({ zones, onOrder }) {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  後台頁                                                  ║
 // ╚══════════════════════════════════════════════════════════╝
-function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) {
+function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout, adminOpen, onToggleOpen }) {
   const [tab, setTab] = useState("orders");
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [toggling, setToggling] = useState(false);
 
   const fetchOrders = async () => {
     if (!GOOGLE_SHEET_URL || GOOGLE_SHEET_URL.includes("貼上你的")) return;
     setLoadingOrders(true);
     try {
-      const url = GOOGLE_SHEET_URL + "?action=getOrders";
-      const resp = await fetch(url);
+      const resp = await fetch(GOOGLE_SHEET_URL + "?action=getOrders");
       const data = await resp.json();
       if (data.status === "ok" && data.orders) {
         const parsed = data.orders.map(o => ({
           ...o,
           items: (o.itemsRaw || "").split("、").filter(Boolean).map(s => {
             const match = s.match(/^(.+?)×(\d+)(.+)$/);
-            return match
-              ? { name: match[1], qty: parseInt(match[2]), unit: match[3], emoji: "🥗" }
-              : { name: s, qty: 1, unit: "", emoji: "🥗" };
+            return match ? { name:match[1], qty:parseInt(match[2]), unit:match[3], emoji:"🥗" } : { name:s, qty:1, unit:"", emoji:"🥗" };
           })
         }));
         setOrders(parsed.reverse());
         showToast(`✅ 已載入 ${parsed.length} 筆訂單`);
       }
-    } catch(e) {
-      showToast("❌ 讀取訂單失敗", "error");
-    } finally {
-      setLoadingOrders(false);
-    }
+    } catch(e) { showToast("❌ 讀取訂單失敗","error"); }
+    finally { setLoadingOrders(false); }
   };
 
-  useEffect(() => { fetchOrders(); }, []);
+  useEffect(()=>{ fetchOrders(); },[]);
 
   const itemTotals = {};
   orders.forEach(o=>o.items.forEach(i=>{
@@ -869,9 +852,32 @@ function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) 
   const topItem   = Object.entries(itemTotals).sort((a,b)=>b[1].qty-a[1].qty)[0];
   const lateCount = orders.filter(o=>o.isLate).length;
 
+  const handleToggle = async () => {
+    setToggling(true);
+    await onToggleOpen(!adminOpen);
+    setToggling(false);
+  };
+
   return (
     <div className="pg">
-      <DeadlineBanner/>
+      {/* ── 收單開關 ── */}
+      <div className={`order-toggle-bar ${adminOpen?"is-open":"is-closed"}`}>
+        <div className="toggle-info">
+          <div className="toggle-label">
+            {adminOpen ? "🟢 收單開放中" : "🔴 收單已關閉"}
+          </div>
+          <div className="toggle-sub">
+            {adminOpen
+              ? `截止時間：${getDeadlineDate()} 晚上 20:00（屆時自動截止）`
+              : "客戶下單仍可送出，但會標記為逾期"}
+          </div>
+        </div>
+        <button className="toggle-btn" onClick={handleToggle} disabled={toggling}>
+          {toggling ? "⏳ 處理中…" : adminOpen ? "🔴 關閉收單" : "🟢 開放收單"}
+        </button>
+      </div>
+
+      <DeadlineBanner adminOpen={adminOpen}/>
       <div className="stats">
         <div className="scard"><div className="snum">{orders.length}</div><div className="slabel">本週訂單</div></div>
         <div className="scard"><div className="snum" style={lateCount>0?{color:"var(--red)"}:{}}>{lateCount}</div><div className="slabel">逾期訂單</div></div>
@@ -883,12 +889,12 @@ function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout }) 
         <button className={`atab ${tab==="update"?"on":""}`} onClick={()=>setTab("update")}>🤖 更新品項</button>
         <button className={`atab ${tab==="items"?"on":""}`}  onClick={()=>setTab("items")}>🥦 品項管理</button>
         <button className="atab" style={{color:"var(--leaf)",borderColor:"#cde0c8"}} onClick={fetchOrders} disabled={loadingOrders}>
-          {loadingOrders ? "⏳" : "🔄 重新整理"}
+          {loadingOrders?"⏳":"🔄 重新整理"}
         </button>
         <button className="atab" style={{marginLeft:"auto",color:"var(--red)",borderColor:"#fde8e6"}} onClick={onLogout}>🔓 登出</button>
       </div>
       {tab==="orders" && <OrdersTab orders={orders} setOrders={setOrders} itemTotals={itemTotals} showToast={showToast}/>}
-      {tab==="stock"  && <StockTab  orders={orders}/>}
+      {tab==="stock"  && <StockTab  orders={orders} zones={zones}/>}
       {tab==="update" && <UpdateTab zones={zones} setZones={setZones} showToast={showToast}/>}
       {tab==="items"  && <ItemsTab  zones={zones} setZones={setZones} showToast={showToast}/>}
     </div>
@@ -911,46 +917,29 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
     (o.name.includes(search)||o.items.some(i=>i.name.includes(search)))
   );
 
-  // 刪除訂單
   const confirmDelete = async () => {
     if (!delTarget) return;
     setDeleting(true);
     try {
-      const url = `${GOOGLE_SHEET_URL}?action=deleteOrder&rowId=${delTarget.id}`;
-      await fetch(url, { mode: "no-cors" });
-      setOrders(prev => prev.filter(o => o.id !== delTarget.id));
+      await fetch(`${GOOGLE_SHEET_URL}?action=deleteOrder&rowId=${delTarget.id}`, { mode:"no-cors" });
+      setOrders(prev=>prev.filter(o=>o.id!==delTarget.id));
       showToast("✅ 訂單已刪除");
-    } catch(e) {
-      showToast("❌ 刪除失敗，請到 Google Sheets 手動刪除", "error");
-    } finally {
-      setDeleting(false);
-      setDelTarget(null);
-    }
+    } catch(e) { showToast("❌ 刪除失敗","error"); }
+    finally { setDeleting(false); setDelTarget(null); }
   };
 
-  // 修改訂單（刪舊 + 新增）
   const saveEdit = async (updatedOrder) => {
     try {
-      const delUrl = `${GOOGLE_SHEET_URL}?action=deleteOrder&rowId=${updatedOrder.id}`;
-      await fetch(delUrl, { mode: "no-cors" });
-      await new Promise(r => setTimeout(r, 600));
-      const addUrl = `${GOOGLE_SHEET_URL}?data=${encodeURIComponent(JSON.stringify({
-        name: updatedOrder.name,
-        note: updatedOrder.note,
-        items: updatedOrder.items,
-        week: updatedOrder.week,
-        isLate: updatedOrder.isLate
-      }))}`;
-      await fetch(addUrl, { mode: "no-cors" });
-      setOrders(prev => prev.map(o => o.id === updatedOrder.id
-        ? {...updatedOrder, time: o.time + "（已修改）"}
-        : o
-      ));
+      await fetch(`${GOOGLE_SHEET_URL}?action=deleteOrder&rowId=${updatedOrder.id}`, { mode:"no-cors" });
+      await new Promise(r=>setTimeout(r,600));
+      await fetch(`${GOOGLE_SHEET_URL}?data=${encodeURIComponent(JSON.stringify({
+        name:updatedOrder.name, note:updatedOrder.note, items:updatedOrder.items,
+        week:updatedOrder.week, isLate:updatedOrder.isLate
+      }))}`, { mode:"no-cors" });
+      setOrders(prev=>prev.map(o=>o.id===updatedOrder.id?{...updatedOrder,time:o.time+"（已修改）"}:o));
       showToast("✅ 訂單已修改");
       setEditTarget(null);
-    } catch(e) {
-      showToast("❌ 修改失敗", "error");
-    }
+    } catch(e) { showToast("❌ 修改失敗","error"); }
   };
 
   const exportCSV = () => {
@@ -960,24 +949,15 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
       const rows = [["#","姓名","品項","數量","單位","備註","訂購時間","週次","狀態"]];
       filtered.forEach((o,oi)=>{
         o.items.forEach((item,ii)=>{
-          rows.push([
-            ii===0?filtered.length-oi:"",
-            ii===0?o.name:"",
-            item.name, item.qty, item.unit,
-            ii===0?(o.note||""):"",
-            ii===0?o.time:"",
-            ii===0?week:"",
-            ii===0?(o.isLate?"逾期":"正常"):"",
-          ]);
+          rows.push([ii===0?filtered.length-oi:"",ii===0?o.name:"",item.name,item.qty,item.unit,
+            ii===0?(o.note||""):"",ii===0?o.time:"",ii===0?week:"",ii===0?(o.isLate?"逾期":"正常"):""]);
         });
       });
       rows.push([],["【品項彙整】"],["品項","合計數量","單位"]);
-      Object.entries(itemTotals).sort((a,b)=>b[1].qty-a[1].qty).forEach(([name,d])=>{
-        rows.push([name,d.qty,d.unit]);
-      });
+      Object.entries(itemTotals).sort((a,b)=>b[1].qty-a[1].qty).forEach(([name,d])=>rows.push([name,d.qty,d.unit]));
       const safe = week.replace(/\s/g,"").replace(/[（）–\/\\:*?"<>|]/g,"-");
       downloadCSV(`鮮採直送訂單_${safe}.csv`, rows);
-      showToast("✅ 匯出成功！用 Excel 開啟 CSV 即可");
+      showToast("✅ 匯出成功！");
     } catch(e){ showToast("❌ 匯出失敗："+e.message,"error"); }
     finally { setExporting(false); }
   };
@@ -1013,44 +993,20 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
         : <div className="otable-wrap">
             <table className="otable">
               <thead><tr>
-                <th style={{width:36}}>#</th>
-                <th>姓名</th>
-                <th>訂購品項</th>
-                <th>備註</th>
-                <th>時間</th>
-                <th>狀態</th>
-                <th style={{width:80}}>操作</th>
+                <th style={{width:36}}>#</th><th>姓名</th><th>訂購品項</th><th>備註</th><th>時間</th><th>狀態</th><th style={{width:80}}>操作</th>
               </tr></thead>
               <tbody>
                 {filtered.map((o,i)=>(
                   <tr key={o.id} className={o.isLate?"late-row":""}>
                     <td style={{color:"var(--ink3)",fontWeight:600}}>{filtered.length-i}</td>
-                    <td style={{fontWeight:700,whiteSpace:"nowrap"}}>
-                      {o.name}
-                      {o.isLate&&<span className="late-tag">逾期</span>}
-                    </td>
+                    <td style={{fontWeight:700,whiteSpace:"nowrap"}}>{o.name}{o.isLate&&<span className="late-tag">逾期</span>}</td>
                     <td>{o.items.map(it=><span key={it.id||it.name} className="itag">{it.emoji}{it.name}×{it.qty}</span>)}</td>
                     <td style={{color:"var(--ink2)",fontSize:".81rem"}}>{o.note||"—"}</td>
                     <td style={{color:"var(--ink3)",fontSize:".77rem",whiteSpace:"nowrap"}}>{o.time}</td>
-                    <td>
-                      {o.isLate
-                        ? <span className="late-tag-sm">⚠ 逾期</span>
-                        : <span style={{color:"var(--leaf)",fontSize:".77rem",fontWeight:600}}>✓ 正常</span>
-                      }
-                    </td>
+                    <td>{o.isLate?<span className="late-tag-sm">⚠ 逾期</span>:<span style={{color:"var(--leaf)",fontSize:".77rem",fontWeight:600}}>✓ 正常</span>}</td>
                     <td style={{display:"flex",gap:4,alignItems:"center"}}>
-                      <button
-                        className="icon-btn"
-                        title="修改此訂單"
-                        onClick={()=>setEditTarget(JSON.parse(JSON.stringify(o)))}
-                        style={{fontSize:"1rem"}}
-                      >✏️</button>
-                      <button
-                        className="icon-btn d"
-                        title="刪除此訂單"
-                        onClick={()=>setDelTarget(o)}
-                        style={{fontSize:"1rem"}}
-                      >🗑</button>
+                      <button className="icon-btn" title="修改" onClick={()=>setEditTarget(JSON.parse(JSON.stringify(o)))}>✏️</button>
+                      <button className="icon-btn d" title="刪除" onClick={()=>setDelTarget(o)}>🗑</button>
                     </td>
                   </tr>
                 ))}
@@ -1059,7 +1015,6 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
           </div>
       }
 
-      {/* 修改訂單 Modal */}
       {editTarget && (
         <div className="edit-modal" onClick={()=>setEditTarget(null)}>
           <div className="edit-card" onClick={e=>e.stopPropagation()}>
@@ -1067,16 +1022,11 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
               <span>✏️ 修改訂單 — {editTarget.name}</span>
               <button onClick={()=>setEditTarget(null)} style={{background:"none",border:"none",fontSize:"1.2rem",cursor:"pointer",color:"#999"}}>✕</button>
             </div>
-            <div style={{fontSize:".8rem",color:"var(--ink3)",marginBottom:12}}>
-              調整品項數量（數量設為 0 即刪除該品項）
-            </div>
+            <div style={{fontSize:".8rem",color:"var(--ink3)",marginBottom:12}}>調整品項數量（數量設為 0 即刪除該品項）</div>
             {editTarget.items.map((item,idx)=>(
               <div key={item.id||item.name+idx} className="edit-item-row">
                 <span style={{fontSize:"1.1rem"}}>{item.emoji}</span>
-                <span className="edit-item-name">
-                  {item.name}
-                  <span style={{color:"var(--ink3)",fontSize:".75rem",marginLeft:4}}>{item.unit}</span>
-                </span>
+                <span className="edit-item-name">{item.name}<span style={{color:"var(--ink3)",fontSize:".75rem",marginLeft:4}}>{item.unit}</span></span>
                 <div className="edit-qty-row">
                   <button className="edit-qty-btn" onClick={()=>{
                     const items=[...editTarget.items];
@@ -1094,39 +1044,27 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
             ))}
             <div style={{marginTop:12}}>
               <div style={{fontSize:".82rem",color:"var(--ink3)",marginBottom:4}}>備註</div>
-              <textarea
-                className="edit-note-input"
-                rows={2}
-                value={editTarget.note||""}
-                onChange={e=>setEditTarget({...editTarget,note:e.target.value})}
-                placeholder="備註留言（可留空）"
-              />
+              <textarea className="edit-note-input" rows={2} value={editTarget.note||""}
+                onChange={e=>setEditTarget({...editTarget,note:e.target.value})} placeholder="備註留言（可留空）"/>
             </div>
             <button className="edit-save-btn" onClick={()=>{
-              const validItems = editTarget.items.filter(i=>i.qty>0);
+              const validItems=editTarget.items.filter(i=>i.qty>0);
               if(!validItems.length){alert("至少要保留一項商品");return;}
               saveEdit({...editTarget,items:validItems});
-            }}>
-              💾 儲存修改
-            </button>
+            }}>💾 儲存修改</button>
           </div>
         </div>
       )}
 
-      {/* 刪除確認對話框 */}
       {delTarget && (
         <div className="del-confirm" onClick={()=>!deleting&&setDelTarget(null)}>
           <div className="del-card" onClick={e=>e.stopPropagation()}>
             <div className="del-icon">🗑️</div>
             <div className="del-title">確定要刪除這筆訂單？</div>
-            <div className="del-sub">
-              <strong>{delTarget.name}</strong> 的訂單將從 Google Sheets 永久刪除，此動作無法復原。
-            </div>
+            <div className="del-sub"><strong>{delTarget.name}</strong> 的訂單將永久刪除，此動作無法復原。</div>
             <div className="del-btns">
               <button className="del-btn-cancel" onClick={()=>setDelTarget(null)} disabled={deleting}>取消</button>
-              <button className="del-btn-confirm" onClick={confirmDelete} disabled={deleting}>
-                {deleting ? "刪除中…" : "確定刪除"}
-              </button>
+              <button className="del-btn-confirm" onClick={confirmDelete} disabled={deleting}>{deleting?"刪除中…":"確定刪除"}</button>
             </div>
           </div>
         </div>
@@ -1139,11 +1077,11 @@ function OrdersTab({ orders, setOrders, itemTotals, showToast }) {
 // ║  AI 圖片更新品項                                         ║
 // ╚══════════════════════════════════════════════════════════╝
 function UpdateTab({ zones, setZones, showToast }) {
-  const [dragging,    setDragging]    = useState(false);
-  const [loading,     setLoading]     = useState(false);
-  const [diff,        setDiff]        = useState(null);
-  const [checked,     setChecked]     = useState({});
-  const [imgPreview,  setImgPreview]  = useState(null);
+  const [dragging,   setDragging]   = useState(false);
+  const [loading,    setLoading]    = useState(false);
+  const [diff,       setDiff]       = useState(null);
+  const [checked,    setChecked]    = useState({});
+  const [imgPreview, setImgPreview] = useState(null);
   const fileRef = useRef();
   const allItems = zones.flatMap(z=>z.items);
 
@@ -1162,7 +1100,7 @@ function UpdateTab({ zones, setZones, showToast }) {
       });
       const resp=await fetch("/api/analyze",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ base64, mediaType: file.type||"image/jpeg" })
+        body:JSON.stringify({base64,mediaType:file.type||"image/jpeg"})
       });
       const data=await resp.json();
       const text=data.content?.map(c=>c.text||"").join("")||"";
@@ -1170,15 +1108,11 @@ function UpdateTab({ zones, setZones, showToast }) {
       try{parsed=JSON.parse(text.replace(/```json|```/g,"").trim());}
       catch{throw new Error("AI 解析失敗，請換一張更清晰的圖片");}
       if(!parsed?.items?.length) throw new Error("未能辨識到品項");
-
       const diffItems=parsed.items.map(item=>{
         const exists=allItems.find(p=>p.name===item.name||p.name.replace(/\s/g,"")===item.name.replace(/\s/g,""));
-        return{
-          id:exists?exists.id:`new_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        return{id:exists?exists.id:`new_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           name:item.name,unit:item.unit||"份",price:item.price||null,
-          zone:item.zone||"leaf",emoji:exists?.emoji||guessEmoji(item.name),
-          status:exists?"exist":"new",
-        };
+          zone:item.zone||"leaf",emoji:exists?.emoji||guessEmoji(item.name),status:exists?"exist":"new"};
       });
       const scannedNames=new Set(parsed.items.map(i=>i.name));
       const missing=allItems.filter(p=>p.active!==false&&!scannedNames.has(p.name)).map(p=>({...p,status:"removed"}));
@@ -1191,19 +1125,16 @@ function UpdateTab({ zones, setZones, showToast }) {
     finally{setLoading(false);}
   };
 
-  // ── applyChanges（修正：只有一個結尾）──
   const applyChanges = async () => {
     if(!diff) return;
     let addC=0, rmC=0;
-    let nz = zones.map(z=>({...z, items:[...z.items]}));
-
+    let nz=zones.map(z=>({...z,items:[...z.items]}));
     diff.forEach(item=>{
       if(!checked[item.id]) return;
       if(item.status==="new"){
         const zi=nz.findIndex(z=>z.id===item.zone);
-        const target = zi>=0?zi:0;
-        const alreadyExists = nz[target].items.some(p=>p.name===item.name);
-        if(!alreadyExists){
+        const target=zi>=0?zi:0;
+        if(!nz[target].items.some(p=>p.name===item.name)){
           nz[target].items.push({id:item.id,name:item.name,emoji:item.emoji,unit:item.unit,price:item.price||null,active:true});
           addC++;
         }
@@ -1212,17 +1143,10 @@ function UpdateTab({ zones, setZones, showToast }) {
         rmC++;
       }
     });
-
-    // 去除重複品項（保留第一個）
-    nz = nz.map(z=>{
-      const seen = new Set();
-      return {...z, items: z.items.filter(p=>{
-        if(seen.has(p.name)) return false;
-        seen.add(p.name);
-        return true;
-      })};
+    nz=nz.map(z=>{
+      const seen=new Set();
+      return{...z,items:z.items.filter(p=>{if(seen.has(p.name))return false;seen.add(p.name);return true;})};
     });
-
     await setZones(nz);
     showToast(`✅ 已新增 ${addC} 項，下架 ${rmC} 項`);
     setDiff(null); setChecked({}); setImgPreview(null);
@@ -1239,9 +1163,7 @@ function UpdateTab({ zones, setZones, showToast }) {
         onDragOver={e=>{e.preventDefault();setDragging(true);}}
         onDragLeave={()=>setDragging(false)}
         onDrop={e=>{e.preventDefault();setDragging(false);handleFile(e.dataTransfer.files[0]);}}>
-        {imgPreview
-          ? <img src={imgPreview} alt="preview" style={{maxHeight:180,maxWidth:"100%",borderRadius:8,marginBottom:8}}/>
-          : <div className="upload-icon">📷</div>}
+        {imgPreview?<img src={imgPreview} alt="preview" style={{maxHeight:180,maxWidth:"100%",borderRadius:8,marginBottom:8}}/>:<div className="upload-icon">📷</div>}
         <div className="upload-text">{imgPreview?"點擊重新上傳":"點擊或拖曳上傳訂單圖片"}</div>
         <div className="upload-hint">支援 JPG / PNG</div>
       </div>
@@ -1251,9 +1173,9 @@ function UpdateTab({ zones, setZones, showToast }) {
         <div className="diff-panel">
           <div className="diff-title">📋 辨識結果（共 {diff.length} 項）— 勾選要執行的變更後按「套用」</div>
           {[
-            {status:"new",     label:"＋ 新品項",     cls:"new-item",     bc:"badge-new",    bt:"新增"},
-            {status:"exist",   label:"✓ 既有品項",    cls:"exist-item",   bc:"badge-exist",  bt:"已存在"},
-            {status:"removed", label:"− 本週無此品項", cls:"removed-item", bc:"badge-remove", bt:"下架?"},
+            {status:"new",label:"＋ 新品項",cls:"new-item",bc:"badge-new",bt:"新增"},
+            {status:"exist",label:"✓ 既有品項",cls:"exist-item",bc:"badge-exist",bt:"已存在"},
+            {status:"removed",label:"− 本週無此品項",cls:"removed-item",bc:"badge-remove",bt:"下架?"},
           ].map(g=>{
             const items=diff.filter(i=>i.status===g.status);
             if(!items.length) return null;
@@ -1294,13 +1216,11 @@ function UpdateTab({ zones, setZones, showToast }) {
 // ║  品項管理                                                ║
 // ╚══════════════════════════════════════════════════════════╝
 function ItemsTab({ zones, setZones, showToast }) {
-  const toggle = (zid, iid) => {
-    const nz = zones.map(z=>z.id!==zid?z:{...z,items:z.items.map(p=>p.id!==iid?p:{...p,active:p.active===false})});
-    setZones(nz);
+  const toggle = (zid,iid) => {
+    setZones(zones.map(z=>z.id!==zid?z:{...z,items:z.items.map(p=>p.id!==iid?p:{...p,active:p.active===false})}));
   };
-  const del = (zid, iid) => {
-    const nz = zones.map(z=>z.id!==zid?z:{...z,items:z.items.filter(p=>p.id!==iid)});
-    setZones(nz);
+  const del = (zid,iid) => {
+    setZones(zones.map(z=>z.id!==zid?z:{...z,items:z.items.filter(p=>p.id!==iid)}));
     showToast("已刪除品項");
   };
   return(
@@ -1325,130 +1245,215 @@ function ItemsTab({ zones, setZones, showToast }) {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  庫存調配                                                ║
 // ╚══════════════════════════════════════════════════════════╝
-function StockTab({ orders }) {
-  const [actuals, setActuals] = useState({});
+function StockTab({ orders, zones }) {
+  const [actuals,  setActuals]  = useState({}); // 實際到貨量 {品項名: 數字}
+  const [adjusted, setAdjusted] = useState({}); // 調整後分配量 {品項名: {客戶名: 數字}}
 
   if (!orders.length) return (
     <div className="stock-panel">
-      <div className="stock-empty">
-        <div style={{fontSize:"2rem",marginBottom:8}}>📭</div>
-        尚無訂單資料，請先載入訂單
-      </div>
+      <div className="stock-empty"><div style={{fontSize:"2rem",marginBottom:8}}>📭</div>尚無訂單資料，請先載入訂單</div>
     </div>
   );
 
-  const customers = [...new Set(orders.map(o => o.name))];
-  const itemMap = {};
-  orders.forEach(o => {
-    o.items.forEach(item => {
-      if (!itemMap[item.name]) itemMap[item.name] = { unit: item.unit, customers: {} };
-      itemMap[item.name].customers[o.name] = (itemMap[item.name].customers[o.name] || 0) + item.qty;
-    });
-  });
-  const itemNames = Object.keys(itemMap).sort();
+  const customers = [...new Set(orders.map(o=>o.name))];
 
-  const setActual = (name, val) => {
-    setActuals(p => ({ ...p, [name]: val === "" ? "" : parseInt(val) || 0 }));
+  // 建立 itemMap（原始訂購量）
+  const itemMap = {};
+  orders.forEach(o=>o.items.forEach(item=>{
+    if(!itemMap[item.name]) itemMap[item.name]={unit:item.unit,customers:{}};
+    itemMap[item.name].customers[o.name]=(itemMap[item.name].customers[o.name]||0)+item.qty;
+  }));
+
+  // ── 品項排序：照 zones 菜單順序 ──
+  const zoneOrder = zones
+    ? zones.flatMap(z=>z.items.filter(i=>i.active!==false).map(i=>i.name))
+    : [];
+  const itemNames = Object.keys(itemMap).sort((a,b)=>{
+    const ia = zoneOrder.indexOf(a);
+    const ib = zoneOrder.indexOf(b);
+    // 在菜單裡的照順序，不在菜單裡的排後面
+    if(ia===-1 && ib===-1) return a.localeCompare(b,"zh-TW");
+    if(ia===-1) return 1;
+    if(ib===-1) return -1;
+    return ia - ib;
+  });
+
+  const setActual = (name,val) => setActuals(p=>({...p,[name]:val===""?"":(parseInt(val)||0)}));
+
+  // 取得某品項某客戶的「有效分配量」：有調整值用調整值，否則用原始訂購量
+  const getEffective = (name, customer) => {
+    const adj = adjusted[name]?.[customer];
+    return adj !== undefined ? adj : (itemMap[name].customers[customer] || 0);
   };
 
-  const hasShortage = itemNames.some(name => {
-    const total = Object.values(itemMap[name].customers).reduce((a,b)=>a+b,0);
-    const actual = actuals[name];
-    return actual !== "" && actual !== undefined && actual < total;
+  // 調整某品項某客戶的分配量
+  const setAdjust = (name, customer, val) => {
+    const v = val === "" ? undefined : Math.max(0, parseInt(val)||0);
+    setAdjusted(p=>{
+      const cur = {...(p[name]||{})};
+      if(v === undefined) {
+        delete cur[customer];
+      } else {
+        cur[customer] = v;
+      }
+      return {...p, [name]: cur};
+    });
+  };
+
+  // 各品項「調整後合計」
+  const getAdjTotal = (name) =>
+    customers.reduce((sum,c) => sum + getEffective(name,c), 0);
+
+  const hasShortage = itemNames.some(name=>{
+    const actual=actuals[name];
+    if(actual===""||actual===undefined) return false;
+    return getAdjTotal(name) > actual;
   });
 
+  // ── 匯出 CSV（含調整後分配量）──
   const exportCSV = () => {
-    const week = getWeekLabel();
-    const rows = [];
-    rows.push([`庫存調配表 ${week}`, ...customers.map(()=>""), "", "", ""]);
-    rows.push(["品項", ...customers, "合計", "實際到貨", "差額", "狀態"]);
-    itemNames.forEach(name => {
-      const data = itemMap[name];
-      const total = Object.values(data.customers).reduce((a,b)=>a+b,0);
-      const actual = actuals[name];
-      const hasActual = actual !== "" && actual !== undefined;
-      const diff = hasActual ? actual - total : "";
-      const status = !hasActual ? "未填" : diff >= 0 ? "✓ 足夠" : `⚠ 缺 ${Math.abs(diff)} ${data.unit}`;
-      rows.push([`${name}(${data.unit})`,...customers.map(c=>data.customers[c]||0),total,hasActual?actual:"",diff,status]);
+    const week=getWeekLabel();
+    const rows=[];
+    // 標頭
+    rows.push([`庫存調配表 ${week}`]);
+    rows.push(["品項(單位)",...customers.map(c=>c+"(原訂)"),...customers.map(c=>c+"(調整後)"),"原訂合計","調整後合計","實際到貨","差額","狀態"]);
+
+    itemNames.forEach(name=>{
+      const data=itemMap[name];
+      const origTotal=Object.values(data.customers).reduce((a,b)=>a+b,0);
+      const adjTotal=getAdjTotal(name);
+      const actual=actuals[name];
+      const hasActual=actual!==""&&actual!==undefined;
+      const diff=hasActual?actual-adjTotal:"";
+      const status=!hasActual?"未填":diff>=0?"✓ 足夠":`⚠ 超過 ${Math.abs(diff)} ${data.unit}`;
+      const origCols=customers.map(c=>data.customers[c]||0);
+      const adjCols=customers.map(c=>{
+        const orig=data.customers[c]||0;
+        const eff=getEffective(name,c);
+        return eff !== orig ? `${eff}(改)` : eff;
+      });
+      rows.push([`${name}(${data.unit})`,...origCols,...adjCols,origTotal,adjTotal,hasActual?actual:"",diff,status]);
     });
-    rows.push([]);
-    rows.push(["※ 不足品項需減量名單"]);
-    itemNames.forEach(name => {
-      const data = itemMap[name];
-      const total = Object.values(data.customers).reduce((a,b)=>a+b,0);
-      const actual = actuals[name];
-      const hasActual = actual !== "" && actual !== undefined;
-      const diff = hasActual ? actual - total : null;
-      if (!hasActual || diff >= 0) return;
-      const shortage = Math.abs(diff);
-      const sorted = Object.entries(data.customers).filter(([,q])=>q>0).sort((a,b)=>b[1]-a[1]);
-      rows.push([`【${name}】缺 ${shortage} ${data.unit}`, ...sorted.map(([c,q])=>`${c}：${q}${data.unit}`)]);
-    });
-    const bom = "\uFEFF";
-    const csv = bom + rows.map(row =>
-      row.map(cell => {
-        const s = String(cell ?? "");
-        return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g,'""')}"` : s;
-      }).join(",")
-    ).join("\r\n");
-    const blob = new Blob([csv], { type:"text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const safe = week.replace(/\s/g,"").replace(/[（）–\/\\:*?"<>|]/g,"-");
-    a.href = url; a.download = `庫存調配表_${safe}.csv`; a.click();
-    URL.revokeObjectURL(url);
+
+    // 調整說明區
+    const hasAny = itemNames.some(name=>Object.keys(adjusted[name]||{}).length>0);
+    if(hasAny){
+      rows.push([]);
+      rows.push(["── 本次調整明細 ──"]);
+      itemNames.forEach(name=>{
+        const adj=adjusted[name]||{};
+        Object.entries(adj).forEach(([c,v])=>{
+          const orig=itemMap[name].customers[c]||0;
+          rows.push([name, c, `原訂 ${orig} ${itemMap[name].unit}`, `→ 調整為 ${v} ${itemMap[name].unit}`, orig>v?"減量":"增量"]);
+        });
+      });
+    }
+
+    const bom="\uFEFF";
+    const csv=bom+rows.map(row=>row.map(cell=>{
+      const s=String(cell??"");
+      return s.includes(",")||s.includes('"')?`"${s.replace(/"/g,'""')}`:s;
+    }).join(",")).join("\r\n");
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    const safe=week.replace(/\s/g,"").replace(/[（）–\/\\:*?"<>|]/g,"-");
+    a.href=url;a.download=`庫存調配表_${safe}.csv`;a.click();URL.revokeObjectURL(url);
   };
 
   return (
     <div>
       <div className="stock-panel">
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
           <div className="stock-title" style={{marginBottom:0}}>📦 庫存調配表</div>
-          <button className="export-btn" onClick={exportCSV}>📥 匯出 CSV（可列印）</button>
+          <button className="export-btn" onClick={exportCSV}>📥 匯出 CSV（含調整）</button>
         </div>
         <div className="stock-legend">
-          <span>✅ 到貨量足夠</span>
-          <span style={{color:"var(--red)"}}>🔴 到貨量不足（需調整）</span>
-          <span style={{color:"var(--ink3)"}}>「實際到貨」欄填入後自動計算差額</span>
+          <span>📝 填入實際到貨量，不足時可直接調整每位客戶的分配數量</span>
+        </div>
+        <div style={{display:"flex",gap:14,fontSize:".75rem",marginBottom:12,flexWrap:"wrap"}}>
+          <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:"var(--ink)",fontWeight:700}}>原始數字</span> = 客戶原訂量</span>
+          <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:"var(--red)",fontWeight:700}}>紅色數字</span> = 已減量</span>
+          <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:"#1a6b3a",fontWeight:700}}>綠色數字</span> = 已增量</span>
         </div>
         <div className="stock-table-wrap">
           <table className="stock-table">
             <thead>
               <tr>
                 <th className="item-col">品項</th>
-                {customers.map(c => <th key={c}>{c}</th>)}
-                <th style={{background:"#1e5a1a"}}>合計</th>
-                <th style={{background:"#1e5a1a"}}>實際到貨</th>
-                <th style={{background:"#1e5a1a"}}>差額</th>
+                {customers.map(c=><th key={c}>{c}</th>)}
+                <th style={{background:"#2a6b26",minWidth:52}}>調整後<br/>合計</th>
+                <th style={{background:"#1e5a1a",minWidth:64}}>實際到貨</th>
+                <th style={{background:"#1e5a1a",minWidth:48}}>差額</th>
               </tr>
             </thead>
             <tbody>
-              {itemNames.map(name => {
-                const data = itemMap[name];
-                const total = Object.values(data.customers).reduce((a,b)=>a+b,0);
-                const actual = actuals[name];
-                const hasActual = actual !== "" && actual !== undefined;
-                const diff = hasActual ? actual - total : null;
-                const isShort = diff !== null && diff < 0;
-                return (
-                  <tr key={name} className={isShort ? "stock-row-warn" : ""}>
+              {itemNames.map(name=>{
+                const data=itemMap[name];
+                const adjTotal=getAdjTotal(name);
+                const actual=actuals[name];
+                const hasActual=actual!==""&&actual!==undefined;
+                const diff=hasActual?actual-adjTotal:null;
+                const isOver=diff!==null&&diff<0; // 調整後合計 > 到貨量
+                return(
+                  <tr key={name} className={isOver?"stock-row-warn":""}>
                     <td className="item-col">
                       {name}
                       <span style={{fontSize:".7rem",color:"var(--ink3)",marginLeft:4}}>{data.unit}</span>
                     </td>
-                    {customers.map(c => (
-                      <td key={c}>
-                        {data.customers[c]
-                          ? <span className="stock-qty" style={isShort&&data.customers[c]?{color:"var(--red)"}:{}}>{data.customers[c]}</span>
-                          : <span style={{color:"#ddd"}}>—</span>}
-                      </td>
-                    ))}
-                    <td className="stock-total">{total}</td>
-                    <td>
-                      <input className="stock-actual-input" type="number" min="0" placeholder="填入"
-                        value={actuals[name] ?? ""} onChange={e=>setActual(name,e.target.value)}/>
+                    {customers.map(c=>{
+                      const orig = data.customers[c]||0;
+                      const eff  = getEffective(name,c);
+                      const isAdj = adjusted[name]?.[c] !== undefined;
+                      const decreased = isAdj && eff < orig;
+                      const increased = isAdj && eff > orig;
+                      return(
+                        <td key={c} style={{padding:"5px 6px"}}>
+                          {orig > 0 ? (
+                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                              {/* 原始訂量（小字） */}
+                              {isAdj && (
+                                <span style={{fontSize:".68rem",color:"var(--ink3)",textDecoration:"line-through"}}>{orig}</span>
+                              )}
+                              {/* 可編輯的分配量 */}
+                              <input
+                                type="number" min="0"
+                                value={eff}
+                                onChange={e=>setAdjust(name,c,e.target.value)}
+                                style={{
+                                  width:46,border:"1.5px solid",borderRadius:5,
+                                  padding:"2px 4px",textAlign:"center",
+                                  fontFamily:"'Noto Sans TC',sans-serif",
+                                  fontSize:".82rem",fontWeight:700,outline:"none",
+                                  borderColor: decreased?"var(--red)":increased?"#1a6b3a":"#cde0c8",
+                                  color: decreased?"var(--red)":increased?"#1a6b3a":"var(--ink)",
+                                  background: decreased?"#fff5f5":increased?"#f0fff4":"#fff",
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <span style={{color:"#ddd",fontSize:".8rem"}}>—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                    {/* 調整後合計 */}
+                    <td style={{
+                      fontWeight:700,textAlign:"center",
+                      color: isOver?"var(--red)":"var(--leaf)",
+                      background: isOver?"#fff0f0":"#f0f8ee"
+                    }}>{adjTotal}</td>
+                    {/* 實際到貨 */}
+                    <td style={{padding:"5px 6px",textAlign:"center"}}>
+                      <input
+                        className="stock-actual-input"
+                        type="number" min="0" placeholder="填入"
+                        value={actuals[name]??""}
+                        onChange={e=>setActual(name,e.target.value)}
+                      />
                     </td>
-                    <td className={isShort?"stock-diff-warn":"stock-diff-ok"}>
+                    {/* 差額 */}
+                    <td className={isOver?"stock-diff-warn":"stock-diff-ok"}>
                       {diff===null?"—":diff>=0?`+${diff} ✓`:`${diff} ⚠`}
                     </td>
                   </tr>
@@ -1459,34 +1464,59 @@ function StockTab({ orders }) {
         </div>
       </div>
 
-      {hasShortage && (
-        <div className="stock-panel" style={{borderLeft:"4px solid var(--red)"}}>
-          <div className="stock-title" style={{color:"var(--red)"}}>⚠️ 到貨不足品項 — 需減量名單</div>
-          {itemNames.map(name => {
-            const data = itemMap[name];
-            const total = Object.values(data.customers).reduce((a,b)=>a+b,0);
-            const actual = actuals[name];
-            const hasActual = actual !== "" && actual !== undefined;
-            const diff = hasActual ? actual - total : null;
-            if (!hasActual || diff >= 0) return null;
-            const shortage = Math.abs(diff);
-            const sorted = Object.entries(data.customers).filter(([,q])=>q>0).sort((a,b)=>b[1]-a[1]);
-            return (
-              <div key={name} style={{marginBottom:16,padding:"12px 14px",background:"#fff8f8",borderRadius:"var(--rs)"}}>
-                <div style={{fontWeight:700,fontSize:".9rem",marginBottom:8}}>
-                  {name}（訂購 {total}、到貨 {actual}、<span style={{color:"var(--red)"}}>缺 {shortage} {data.unit}</span>）
+      {/* 調整摘要 */}
+      {itemNames.some(name=>Object.keys(adjusted[name]||{}).length>0) && (
+        <div className="stock-panel" style={{borderLeft:"4px solid var(--gold)"}}>
+          <div className="stock-title" style={{color:"var(--gold)"}}>📋 本次調整摘要</div>
+          {itemNames.map(name=>{
+            const adj=adjusted[name]||{};
+            const entries=Object.entries(adj);
+            if(!entries.length) return null;
+            return(
+              <div key={name} style={{marginBottom:12}}>
+                <div style={{fontWeight:700,fontSize:".85rem",marginBottom:6,color:"var(--ink2)"}}>
+                  {name}（{itemMap[name].unit}）
                 </div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-                  {sorted.map(([customer,qty])=>(
-                    <div key={customer} style={{background:"#fff",border:"1.5px solid #f5b7ae",borderRadius:8,padding:"5px 12px",fontSize:".82rem"}}>
-                      <span style={{fontWeight:700}}>{customer}</span>
-                      <span style={{color:"var(--ink3)",marginLeft:6}}>訂 {qty} {data.unit}</span>
-                    </div>
-                  ))}
+                  {entries.map(([c,v])=>{
+                    const orig=itemMap[name].customers[c]||0;
+                    const decreased=v<orig, increased=v>orig;
+                    return(
+                      <div key={c} style={{
+                        background:"#fff",borderRadius:8,padding:"5px 12px",fontSize:".82rem",
+                        border:`1.5px solid ${decreased?"#f5b7ae":increased?"#9ecb96":"#ddd"}`
+                      }}>
+                        <span style={{fontWeight:700}}>{c}</span>
+                        <span style={{color:"var(--ink3)",margin:"0 5px"}}>{orig}</span>
+                        <span style={{color:"var(--ink3)"}}>→</span>
+                        <span style={{
+                          fontWeight:700,marginLeft:5,
+                          color:decreased?"var(--red)":increased?"#1a6b3a":"var(--ink)"
+                        }}>{v} {decreased?"▼":"▲"}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div style={{fontSize:".76rem",color:"var(--ink3)",marginTop:8}}>
-                  ↑ 依訂購量排列，建議從訂購量多的客戶開始協商減量
-                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 超量警告 */}
+      {hasShortage && (
+        <div className="stock-panel" style={{borderLeft:"4px solid var(--red)"}}>
+          <div className="stock-title" style={{color:"var(--red)"}}>⚠️ 調整後仍超過到貨量的品項</div>
+          {itemNames.map(name=>{
+            const actual=actuals[name];
+            const hasActual=actual!==""&&actual!==undefined;
+            const adjTotal=getAdjTotal(name);
+            if(!hasActual||adjTotal<=actual) return null;
+            return(
+              <div key={name} style={{marginBottom:10,padding:"10px 14px",background:"#fff8f8",borderRadius:"var(--rs)",fontSize:".85rem"}}>
+                <strong>{name}</strong>：調整後合計 {adjTotal}、到貨 {actual}，仍超過{" "}
+                <span style={{color:"var(--red)",fontWeight:700}}>{adjTotal-actual} {itemMap[name].unit}</span>
+                ，請繼續減量。
               </div>
             );
           })}
