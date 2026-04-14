@@ -889,7 +889,7 @@ function AdminPage({ zones, setZones, orders, setOrders, showToast, onLogout, ad
         <button className="atab" style={{marginLeft:"auto",color:"var(--red)",borderColor:"#fde8e6"}} onClick={onLogout}>🔓 登出</button>
       </div>
       {tab==="orders" && <OrdersTab orders={orders} setOrders={setOrders} itemTotals={itemTotals} showToast={showToast}/>}
-      {tab==="stock"  && <StockTab  orders={orders} zones={zones}/>}
+      {tab==="stock"  && <StockTab  orders={orders} zones={zones} setOrders={setOrders} showToast={showToast}/>}
       {tab==="update" && <UpdateTab zones={zones} setZones={setZones} showToast={showToast}/>}
       {tab==="items"  && <ItemsTab  zones={zones} setZones={setZones} showToast={showToast}/>}
     </div>
@@ -1298,17 +1298,13 @@ function ItemsTab({ zones, setZones, showToast }) {
 }
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  庫存調配                                                ║
+// ║  庫存調配 v10                                            ║
 // ╚══════════════════════════════════════════════════════════╝
-function StockTab({ orders, zones }) {
-  const [actuals,  setActuals]  = useState({}); // 實際到貨量 {品項名: 數字}
-  const [adjusted, setAdjusted] = useState({}); // 調整後分配量 {品項名: {客戶名: 數字}}
-
-  if (!orders.length) return (
-    <div className="stock-panel">
-      <div className="stock-empty"><div style={{fontSize:"2rem",marginBottom:8}}>📭</div>尚無訂單資料，請先載入訂單</div>
-    </div>
-  );
+function StockTab({ orders, zones, setOrders, showToast }) {
+  const [actuals,      setActuals]      = useState({});
+  const [adjusted,     setAdjusted]     = useState({});
+  const [clearing,     setClearing]     = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const customers = [...new Set(orders.map(o=>o.name))];
 
@@ -1319,45 +1315,35 @@ function StockTab({ orders, zones }) {
     itemMap[item.name].customers[o.name]=(itemMap[item.name].customers[o.name]||0)+item.qty;
   }));
 
-  // ── 品項排序：照 zones 菜單順序 ──
-  const zoneOrder = zones
-    ? zones.flatMap(z=>z.items.filter(i=>i.active!==false).map(i=>i.name))
-    : [];
+  // 品項排序：照 zones 菜單順序
+  const zoneOrder = zones ? zones.flatMap(z=>z.items.filter(i=>i.active!==false).map(i=>i.name)) : [];
   const itemNames = Object.keys(itemMap).sort((a,b)=>{
-    const ia = zoneOrder.indexOf(a);
-    const ib = zoneOrder.indexOf(b);
-    // 在菜單裡的照順序，不在菜單裡的排後面
-    if(ia===-1 && ib===-1) return a.localeCompare(b,"zh-TW");
-    if(ia===-1) return 1;
-    if(ib===-1) return -1;
-    return ia - ib;
+    const ia=zoneOrder.indexOf(a), ib=zoneOrder.indexOf(b);
+    if(ia===-1&&ib===-1) return a.localeCompare(b,"zh-TW");
+    if(ia===-1) return 1; if(ib===-1) return -1;
+    return ia-ib;
   });
 
-  const setActual = (name,val) => setActuals(p=>({...p,[name]:val===""?"":(parseInt(val)||0)}));
+  const setActual  = (name,val) => setActuals(p=>({...p,[name]:val===""?"":(parseInt(val)||0)}));
 
-  // 取得某品項某客戶的「有效分配量」：有調整值用調整值，否則用原始訂購量
+  // 取得有效分配量（有調整用調整值，否則用原訂量；沒訂購的客戶預設0）
   const getEffective = (name, customer) => {
     const adj = adjusted[name]?.[customer];
-    return adj !== undefined ? adj : (itemMap[name].customers[customer] || 0);
+    if(adj !== undefined) return adj;
+    return itemMap[name].customers[customer] || 0;
   };
 
-  // 調整某品項某客戶的分配量
   const setAdjust = (name, customer, val) => {
     const v = val === "" ? undefined : Math.max(0, parseInt(val)||0);
     setAdjusted(p=>{
       const cur = {...(p[name]||{})};
-      if(v === undefined) {
-        delete cur[customer];
-      } else {
-        cur[customer] = v;
-      }
+      if(v === undefined) { delete cur[customer]; }
+      else { cur[customer] = v; }
       return {...p, [name]: cur};
     });
   };
 
-  // 各品項「調整後合計」
-  const getAdjTotal = (name) =>
-    customers.reduce((sum,c) => sum + getEffective(name,c), 0);
+  const getAdjTotal = (name) => customers.reduce((sum,c)=>sum+getEffective(name,c),0);
 
   const hasShortage = itemNames.some(name=>{
     const actual=actuals[name];
@@ -1365,150 +1351,232 @@ function StockTab({ orders, zones }) {
     return getAdjTotal(name) > actual;
   });
 
-  // ── 匯出 CSV（含調整後分配量）──
-  const exportCSV = () => {
-    const week=getWeekLabel();
-    const rows=[];
-    // 標頭
-    rows.push([`庫存調配表 ${week}`]);
-    rows.push(["品項(單位)",...customers.map(c=>c+"(原訂)"),...customers.map(c=>c+"(調整後)"),"原訂合計","調整後合計","實際到貨","差額","狀態"]);
-
+  // ── 結案 CSV（格式：有調整顯示 原訂→調整，沒調整顯示數字）──
+  const buildCSV = () => {
+    const week = getWeekLabel();
+    const rows = [];
+    rows.push([`庫存調配記錄 ${week}`]);
+    rows.push(["品項(單位)", ...customers, "調整後合計", "實際到貨", "差額", "狀態"]);
     itemNames.forEach(name=>{
-      const data=itemMap[name];
-      const origTotal=Object.values(data.customers).reduce((a,b)=>a+b,0);
-      const adjTotal=getAdjTotal(name);
-      const actual=actuals[name];
-      const hasActual=actual!==""&&actual!==undefined;
-      const diff=hasActual?actual-adjTotal:"";
-      const status=!hasActual?"未填":diff>=0?"✓ 足夠":`⚠ 超過 ${Math.abs(diff)} ${data.unit}`;
-      const origCols=customers.map(c=>data.customers[c]||0);
-      const adjCols=customers.map(c=>{
-        const orig=data.customers[c]||0;
-        const eff=getEffective(name,c);
-        return eff !== orig ? `${eff}(改)` : eff;
+      const data  = itemMap[name];
+      const adjTotal = getAdjTotal(name);
+      const actual   = actuals[name];
+      const hasAct   = actual!==""&&actual!==undefined;
+      const diff     = hasAct ? actual-adjTotal : "";
+      const status   = !hasAct?"未填":diff>=0?"✓ 足夠":`⚠ 超過 ${Math.abs(diff)} ${data.unit}`;
+      const cols = customers.map(c=>{
+        const orig = data.customers[c]||0;
+        const eff  = getEffective(name,c);
+        const isAdj = adjusted[name]?.[c] !== undefined;
+        if(isAdj && eff !== orig) return `${orig}→${eff}`;
+        if(eff > 0) return eff;
+        return "—";
       });
-      rows.push([`${name}(${data.unit})`,...origCols,...adjCols,origTotal,adjTotal,hasActual?actual:"",diff,status]);
+      rows.push([`${name}(${data.unit})`, ...cols, adjTotal, hasAct?actual:"", diff, status]);
     });
+    return rows;
+  };
 
-    // 調整說明區
-    const hasAny = itemNames.some(name=>Object.keys(adjusted[name]||{}).length>0);
-    if(hasAny){
-      rows.push([]);
-      rows.push(["── 本次調整明細 ──"]);
-      itemNames.forEach(name=>{
-        const adj=adjusted[name]||{};
-        Object.entries(adj).forEach(([c,v])=>{
-          const orig=itemMap[name].customers[c]||0;
-          rows.push([name, c, `原訂 ${orig} ${itemMap[name].unit}`, `→ 調整為 ${v} ${itemMap[name].unit}`, orig>v?"減量":"增量"]);
-        });
-      });
-    }
-
-    const bom="\uFEFF";
-    const csv=bom+rows.map(row=>row.map(cell=>{
+  const exportCSV = () => {
+    const rows = buildCSV();
+    const week = getWeekLabel();
+    const bom  = "\uFEFF";
+    const csv  = bom+rows.map(row=>row.map(cell=>{
       const s=String(cell??"");
       return s.includes(",")||s.includes('"')?`"${s.replace(/"/g,'""')}`:s;
     }).join(",")).join("\r\n");
-    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    const safe=week.replace(/\s/g,"").replace(/[（）–\/\\:*?"<>|]/g,"-");
-    a.href=url;a.download=`庫存調配表_${safe}.csv`;a.click();URL.revokeObjectURL(url);
+    const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    const safe = week.replace(/\s/g,"").replace(/[（）–\/\\:*?"<>|]/g,"-");
+    a.href=url; a.download=`庫存調配表_${safe}.csv`; a.click();
+    URL.revokeObjectURL(url);
   };
+
+  // ── 結案：存 Sheets + 下載 CSV + 清空訂單 ──
+  const handleClear = async () => {
+    setClearing(true);
+    try {
+      // 1. 下載 CSV 到電腦
+      exportCSV();
+
+      // 2. 把調配記錄存到 Google Sheets「調配記錄」工作表
+      const week = getWeekLabel();
+      const rows = buildCSV();
+      const recordData = encodeURIComponent(JSON.stringify({ week, rows }));
+      await fetch(GOOGLE_SHEET_URL + "?action=saveStockRecord&data=" + recordData, { mode:"no-cors" });
+      await new Promise(r=>setTimeout(r,500));
+
+      // 3. 清空訂單工作表（保留標題列）
+      await fetch(GOOGLE_SHEET_URL + "?action=clearOrders", { mode:"no-cors" });
+      await new Promise(r=>setTimeout(r,500));
+
+      // 4. 清空畫面
+      setOrders([]);
+      setActuals({});
+      setAdjusted({});
+      setConfirmClear(false);
+      showToast("✅ 已存檔並清空本週訂單，可開始收下週訂單");
+    } catch(e) {
+      showToast("❌ 結案失敗："+e.message, "error");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  if (!orders.length) return (
+    <div className="stock-panel">
+      <div className="stock-empty"><div style={{fontSize:"2rem",marginBottom:8}}>📭</div>尚無訂單資料，請先載入訂單</div>
+    </div>
+  );
 
   return (
     <div>
       <div className="stock-panel">
+        {/* 頂部工具列 */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
           <div className="stock-title" style={{marginBottom:0}}>📦 庫存調配表</div>
-          <button className="export-btn" onClick={exportCSV}>📥 匯出 CSV（含調整）</button>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button className="export-btn" onClick={exportCSV}>📥 匯出 CSV</button>
+            <button
+              onClick={()=>setConfirmClear(true)}
+              style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",
+                background:"linear-gradient(135deg,#922b21,var(--red))",color:"#fff",
+                border:"none",borderRadius:"var(--rs)",fontFamily:"'Noto Sans TC',sans-serif",
+                fontSize:".82rem",fontWeight:600,cursor:"pointer",
+                boxShadow:"0 3px 10px rgba(192,57,43,.3)"
+              }}
+            >✅ 結案並清空</button>
+          </div>
         </div>
-        <div className="stock-legend">
-          <span>📝 填入實際到貨量，不足時可直接調整每位客戶的分配數量</span>
+
+        <div style={{display:"flex",gap:14,fontSize:".75rem",marginBottom:12,flexWrap:"wrap",color:"var(--ink3)"}}>
+          <span><span style={{color:"var(--ink)",fontWeight:700}}>數字</span> = 原訂量（可直接修改）</span>
+          <span><span style={{color:"var(--red)",fontWeight:700}}>紅色</span> = 已減量</span>
+          <span><span style={{color:"#1a6b3a",fontWeight:700}}>綠色</span> = 已增量</span>
+          <span><span style={{color:"var(--ink3)"}}>—</span> = 未訂購（可填入新增量）</span>
         </div>
-        <div style={{display:"flex",gap:14,fontSize:".75rem",marginBottom:12,flexWrap:"wrap"}}>
-          <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:"var(--ink)",fontWeight:700}}>原始數字</span> = 客戶原訂量</span>
-          <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:"var(--red)",fontWeight:700}}>紅色數字</span> = 已減量</span>
-          <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:"#1a6b3a",fontWeight:700}}>綠色數字</span> = 已增量</span>
-        </div>
-        <div className="stock-table-wrap">
-          <table className="stock-table">
+
+        {/* 固定表頭的表格容器 */}
+        <div style={{
+          overflowX:"auto",
+          overflowY:"auto",
+          maxHeight:"65vh",
+          border:"1px solid #eef4ec",
+          borderRadius:"var(--rs)"
+        }}>
+          <table style={{
+            borderCollapse:"collapse",
+            fontSize:".8rem",
+            minWidth:"100%",
+            tableLayout:"fixed"
+          }}>
             <thead>
-              <tr>
-                <th className="item-col">品項</th>
-                {customers.map(c=><th key={c}>{c}</th>)}
-                <th style={{background:"#2a6b26",minWidth:52}}>調整後<br/>合計</th>
-                <th style={{background:"#1e5a1a",minWidth:64}}>實際到貨</th>
-                <th style={{background:"#1e5a1a",minWidth:48}}>差額</th>
+              <tr style={{position:"sticky",top:0,zIndex:3}}>
+                {/* 品項欄：固定左側 */}
+                <th style={{
+                  background:"var(--leaf)",color:"#fff",
+                  padding:"10px 12px",textAlign:"left",
+                  position:"sticky",left:0,zIndex:4,
+                  minWidth:120,fontFamily:"'Noto Serif TC',serif",
+                  fontWeight:500,whiteSpace:"nowrap",
+                  boxShadow:"2px 0 4px rgba(0,0,0,.08)"
+                }}>品項</th>
+                {customers.map(c=>(
+                  <th key={c} style={{
+                    background:"var(--leaf)",color:"#fff",
+                    padding:"8px 6px",textAlign:"center",
+                    minWidth:72,fontWeight:500,
+                    whiteSpace:"nowrap",overflow:"hidden",
+                    textOverflow:"ellipsis",maxWidth:80
+                  }}>{c}</th>
+                ))}
+                <th style={{background:"#2a6b26",color:"#fff",padding:"8px 6px",textAlign:"center",minWidth:56,whiteSpace:"nowrap",fontSize:".75rem"}}>調整後<br/>合計</th>
+                <th style={{background:"#1e5a1a",color:"#fff",padding:"8px 6px",textAlign:"center",minWidth:64,whiteSpace:"nowrap",fontSize:".75rem"}}>實際到貨</th>
+                <th style={{background:"#1e5a1a",color:"#fff",padding:"8px 6px",textAlign:"center",minWidth:48,whiteSpace:"nowrap",fontSize:".75rem"}}>差額</th>
               </tr>
             </thead>
             <tbody>
-              {itemNames.map(name=>{
-                const data=itemMap[name];
-                const adjTotal=getAdjTotal(name);
-                const actual=actuals[name];
-                const hasActual=actual!==""&&actual!==undefined;
-                const diff=hasActual?actual-adjTotal:null;
-                const isOver=diff!==null&&diff<0; // 調整後合計 > 到貨量
+              {itemNames.map((name,ri)=>{
+                const data     = itemMap[name];
+                const adjTotal = getAdjTotal(name);
+                const actual   = actuals[name];
+                const hasAct   = actual!==""&&actual!==undefined;
+                const diff     = hasAct ? actual-adjTotal : null;
+                const isOver   = diff!==null&&diff<0;
                 return(
-                  <tr key={name} className={isOver?"stock-row-warn":""}>
-                    <td className="item-col">
+                  <tr key={name} style={{background:isOver?"#fff8f8":ri%2===0?"#fafff9":"#fff"}}>
+                    {/* 品項名稱：固定左側 */}
+                    <td style={{
+                      padding:"8px 12px",fontWeight:600,fontSize:".82rem",
+                      position:"sticky",left:0,zIndex:2,
+                      background:isOver?"#fff0f0":ri%2===0?"#fafff9":"#fff",
+                      borderRight:"2px solid #eef4ec",
+                      whiteSpace:"nowrap",
+                      boxShadow:"2px 0 4px rgba(0,0,0,.05)"
+                    }}>
                       {name}
                       <span style={{fontSize:".7rem",color:"var(--ink3)",marginLeft:4}}>{data.unit}</span>
                     </td>
                     {customers.map(c=>{
-                      const orig = data.customers[c]||0;
-                      const eff  = getEffective(name,c);
-                      const isAdj = adjusted[name]?.[c] !== undefined;
+                      const orig     = data.customers[c]||0;
+                      const eff      = getEffective(name,c);
+                      const isAdj    = adjusted[name]?.[c] !== undefined;
                       const decreased = isAdj && eff < orig;
                       const increased = isAdj && eff > orig;
                       return(
-                        <td key={c} style={{padding:"5px 6px"}}>
-                          {orig > 0 ? (
-                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                              {/* 原始訂量（小字） */}
-                              {isAdj && (
-                                <span style={{fontSize:".68rem",color:"var(--ink3)",textDecoration:"line-through"}}>{orig}</span>
-                              )}
-                              {/* 可編輯的分配量 */}
-                              <input
-                                type="number" min="0"
-                                value={eff}
-                                onChange={e=>setAdjust(name,c,e.target.value)}
-                                style={{
-                                  width:46,border:"1.5px solid",borderRadius:5,
-                                  padding:"2px 4px",textAlign:"center",
-                                  fontFamily:"'Noto Sans TC',sans-serif",
-                                  fontSize:".82rem",fontWeight:700,outline:"none",
-                                  borderColor: decreased?"var(--red)":increased?"#1a6b3a":"#cde0c8",
-                                  color: decreased?"var(--red)":increased?"#1a6b3a":"var(--ink)",
-                                  background: decreased?"#fff5f5":increased?"#f0fff4":"#fff",
-                                }}
-                              />
-                            </div>
-                          ) : (
-                            <span style={{color:"#ddd",fontSize:".8rem"}}>—</span>
-                          )}
+                        <td key={c} style={{padding:"4px 4px",textAlign:"center"}}>
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                            {/* 原始訂量小字（有調整時才顯示） */}
+                            {isAdj && orig>0 && (
+                              <span style={{fontSize:".65rem",color:"var(--ink3)",textDecoration:"line-through",lineHeight:1}}>{orig}</span>
+                            )}
+                            <input
+                              type="number" min="0"
+                              value={eff===0&&!isAdj?"":eff}
+                              placeholder={orig===0?"0":""}
+                              onChange={e=>{
+                                const v=e.target.value;
+                                if(v===""&&orig===0) { setAdjust(name,c,undefined); return; }
+                                setAdjust(name,c,v===""?undefined:v);
+                              }}
+                              style={{
+                                width:44,border:"1.5px solid",borderRadius:4,
+                                padding:"2px 3px",textAlign:"center",
+                                fontFamily:"'Noto Sans TC',sans-serif",
+                                fontSize:".8rem",fontWeight:700,outline:"none",
+                                borderColor: decreased?"var(--red)":increased?"#1a6b3a":orig>0?"#cde0c8":"#e0e0e0",
+                                color: decreased?"var(--red)":increased?"#1a6b3a":orig>0?"var(--ink)":"#aaa",
+                                background: decreased?"#fff5f5":increased?"#f0fff4":orig>0?"#fff":"#fafafa",
+                              }}
+                            />
+                          </div>
                         </td>
                       );
                     })}
-                    {/* 調整後合計 */}
                     <td style={{
-                      fontWeight:700,textAlign:"center",
-                      color: isOver?"var(--red)":"var(--leaf)",
-                      background: isOver?"#fff0f0":"#f0f8ee"
+                      textAlign:"center",fontWeight:700,
+                      color:isOver?"var(--red)":"var(--leaf)",
+                      background:isOver?"#ffe8e8":"#f0f8ee",
+                      padding:"4px 6px"
                     }}>{adjTotal}</td>
-                    {/* 實際到貨 */}
-                    <td style={{padding:"5px 6px",textAlign:"center"}}>
+                    <td style={{padding:"4px 6px",textAlign:"center"}}>
                       <input
-                        className="stock-actual-input"
                         type="number" min="0" placeholder="填入"
                         value={actuals[name]??""}
                         onChange={e=>setActual(name,e.target.value)}
+                        style={{
+                          width:54,border:"1.5px solid #cde0c8",borderRadius:4,
+                          padding:"3px 5px",textAlign:"center",
+                          fontFamily:"'Noto Sans TC',sans-serif",
+                          fontSize:".8rem",outline:"none"
+                        }}
                       />
                     </td>
-                    {/* 差額 */}
-                    <td className={isOver?"stock-diff-warn":"stock-diff-ok"}>
+                    <td style={{
+                      textAlign:"center",fontWeight:700,padding:"4px 6px",
+                      color:isOver?"var(--red)":"var(--leaf)"
+                    }}>
                       {diff===null?"—":diff>=0?`+${diff} ✓`:`${diff} ⚠`}
                     </td>
                   </tr>
@@ -1525,29 +1593,24 @@ function StockTab({ orders, zones }) {
           <div className="stock-title" style={{color:"var(--gold)"}}>📋 本次調整摘要</div>
           {itemNames.map(name=>{
             const adj=adjusted[name]||{};
-            const entries=Object.entries(adj);
+            const entries=Object.entries(adj).filter(([c,v])=>v!==(itemMap[name].customers[c]||0));
             if(!entries.length) return null;
             return(
-              <div key={name} style={{marginBottom:12}}>
-                <div style={{fontWeight:700,fontSize:".85rem",marginBottom:6,color:"var(--ink2)"}}>
-                  {name}（{itemMap[name].unit}）
-                </div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+              <div key={name} style={{marginBottom:10}}>
+                <span style={{fontWeight:700,fontSize:".85rem",color:"var(--ink2)"}}>{name}（{itemMap[name].unit}）</span>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:5}}>
                   {entries.map(([c,v])=>{
                     const orig=itemMap[name].customers[c]||0;
-                    const decreased=v<orig, increased=v>orig;
+                    const decreased=v<orig,increased=v>orig;
                     return(
                       <div key={c} style={{
-                        background:"#fff",borderRadius:8,padding:"5px 12px",fontSize:".82rem",
+                        background:"#fff",borderRadius:7,padding:"4px 10px",fontSize:".8rem",
                         border:`1.5px solid ${decreased?"#f5b7ae":increased?"#9ecb96":"#ddd"}`
                       }}>
                         <span style={{fontWeight:700}}>{c}</span>
-                        <span style={{color:"var(--ink3)",margin:"0 5px"}}>{orig}</span>
-                        <span style={{color:"var(--ink3)"}}>→</span>
-                        <span style={{
-                          fontWeight:700,marginLeft:5,
-                          color:decreased?"var(--red)":increased?"#1a6b3a":"var(--ink)"
-                        }}>{v} {decreased?"▼":"▲"}</span>
+                        <span style={{color:"var(--ink3)",margin:"0 4px"}}>{orig}→</span>
+                        <span style={{fontWeight:700,color:decreased?"var(--red)":increased?"#1a6b3a":"var(--ink)"}}>{v}</span>
+                        <span style={{marginLeft:3}}>{decreased?"▼":"▲"}</span>
                       </div>
                     );
                   })}
@@ -1561,20 +1624,50 @@ function StockTab({ orders, zones }) {
       {/* 超量警告 */}
       {hasShortage && (
         <div className="stock-panel" style={{borderLeft:"4px solid var(--red)"}}>
-          <div className="stock-title" style={{color:"var(--red)"}}>⚠️ 調整後仍超過到貨量的品項</div>
+          <div className="stock-title" style={{color:"var(--red)"}}>⚠️ 調整後仍超過到貨量</div>
           {itemNames.map(name=>{
             const actual=actuals[name];
-            const hasActual=actual!==""&&actual!==undefined;
+            const hasAct=actual!==""&&actual!==undefined;
             const adjTotal=getAdjTotal(name);
-            if(!hasActual||adjTotal<=actual) return null;
+            if(!hasAct||adjTotal<=actual) return null;
             return(
-              <div key={name} style={{marginBottom:10,padding:"10px 14px",background:"#fff8f8",borderRadius:"var(--rs)",fontSize:".85rem"}}>
-                <strong>{name}</strong>：調整後合計 {adjTotal}、到貨 {actual}，仍超過{" "}
-                <span style={{color:"var(--red)",fontWeight:700}}>{adjTotal-actual} {itemMap[name].unit}</span>
-                ，請繼續減量。
+              <div key={name} style={{marginBottom:8,padding:"9px 12px",background:"#fff8f8",borderRadius:"var(--rs)",fontSize:".84rem"}}>
+                <strong>{name}</strong>：調整後 {adjTotal}、到貨 {actual}，
+                仍超過 <span style={{color:"var(--red)",fontWeight:700}}>{adjTotal-actual} {itemMap[name].unit}</span>，請繼續減量。
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* 結案確認對話框 */}
+      {confirmClear && (
+        <div className="del-confirm" onClick={()=>!clearing&&setConfirmClear(false)}>
+          <div className="del-card" onClick={e=>e.stopPropagation()}>
+            <div className="del-icon">📦</div>
+            <div className="del-title">確認結案並清空本週訂單？</div>
+            <div className="del-sub" style={{lineHeight:1.8}}>
+              系統將會：<br/>
+              ① 自動下載調配記錄 CSV 到你的電腦<br/>
+              ② 將調配記錄存入 Google Sheets「調配記錄」分頁<br/>
+              ③ 清空訂單工作表，準備收下週訂單<br/>
+              <span style={{color:"var(--red)",fontWeight:600}}>此動作無法復原，請確認已分配完畢。</span>
+            </div>
+            <div className="del-btns">
+              <button className="del-btn-cancel" onClick={()=>setConfirmClear(false)} disabled={clearing}>取消</button>
+              <button
+                style={{flex:1,padding:10,border:"none",
+                  background:"linear-gradient(135deg,#922b21,var(--red))",
+                  color:"#fff",borderRadius:"var(--rs)",
+                  fontFamily:"'Noto Sans TC',sans-serif",fontSize:".88rem",
+                  fontWeight:600,cursor:"pointer"
+                }}
+                onClick={handleClear} disabled={clearing}
+              >
+                {clearing?"⏳ 處理中…":"✅ 確認結案"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
